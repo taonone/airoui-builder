@@ -1,6 +1,6 @@
-/**
+/*
  * Cloudflare Worker: Airoui Backend
- * Handles Auth, Products, and Orders
+ * Handles Auth, Products, Orders, and File Storage (R2)
  */
 import bcrypt from 'bcryptjs';
 
@@ -24,6 +24,58 @@ export default {
       // Helper to return JSON
       const jsonResponse = (data, status = 200) =>
         new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+      // ==========================================
+      // FILE STORAGE ROUTES (R2) - [NEW]
+      // ==========================================
+
+      // 1. File Upload (관리자용)
+      // PUT /api/upload?filename=my-app.zip
+      if (url.pathname === '/api/upload' && request.method === 'PUT') {
+        // 쿼리 파라미터에서 파일명 추출 (없으면 타임스탬프 기본값)
+        const filename = url.searchParams.get('filename') || `file_${Date.now()}.bin`;
+        
+        // R2 버킷(MY_BUCKET)에 파일 저장 (Request Body 스트림을 그대로 저장)
+        if (!env.MY_BUCKET) {
+           return jsonResponse({ error: 'R2 Bucket not configured' }, 500);
+        }
+        await env.MY_BUCKET.put(filename, request.body);
+
+        // 다운로드 가능한 공용 URL 생성 (Worker 자체를 프록시로 사용)
+        const fileUrl = `${url.origin}/files/${filename}`;
+        
+        console.log(`[Cloud Worker] File Uploaded: ${filename}`);
+
+        return jsonResponse({ 
+          success: true, 
+          url: fileUrl 
+        });
+      }
+
+      // 2. File Download (공용)
+      // GET /files/my-app.zip
+      if (url.pathname.startsWith('/files/') && request.method === 'GET') {
+        const filename = url.pathname.replace('/files/', '');
+        
+        if (!env.MY_BUCKET) {
+           return new Response('R2 Bucket not configured', { status: 500, headers: corsHeaders });
+        }
+
+        // R2 버킷에서 파일 찾기
+        const object = await env.MY_BUCKET.get(filename);
+
+        if (object === null) {
+          return new Response('File Not Found', { status: 404, headers: corsHeaders });
+        }
+
+        // 파일 데이터 전송 (메타데이터 및 헤더 설정)
+        const headers = new Headers(object.httpMetadata);
+        headers.set('etag', object.httpEtag);
+        // CORS 헤더 추가 (중요: 브라우저가 다운로드를 허용하도록)
+        headers.set('Access-Control-Allow-Origin', '*'); 
+
+        return new Response(object.body, { headers });
+      }
 
       // ==========================================
       // AUTH ROUTES
@@ -71,7 +123,7 @@ export default {
         return jsonResponse({ success: true, user });
       }
 
-      // 6. Delete Account
+      // 3. Delete Account
       if (url.pathname === '/api/auth/delete' && request.method === 'POST') {
         const { userId, password } = await request.json();
 
@@ -83,7 +135,6 @@ export default {
         if (!match) return jsonResponse({ error: 'Invalid password' }, 401);
 
         // Delete Data
-        // 1. Delete Orders (and items? items are linked by order_id, we should clean them up too but for now cascading or simple delete orders)
         // Let's keep it simple: Delete User, Orders, and their Products.
         await env.DB.batch([
           env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId),
@@ -99,7 +150,7 @@ export default {
       // PRODUCT ROUTES
       // ==========================================
 
-      // 3. Get All Products
+      // 4. Get All Products
       if (url.pathname === '/api/products' && request.method === 'GET') {
         const { results } = await env.DB.prepare('SELECT * FROM products ORDER BY created_at DESC').all();
         // Parse JSON fields
@@ -111,7 +162,7 @@ export default {
         return jsonResponse(products);
       }
 
-      // 4. Add Product (Admin Only - simplified check)
+      // 5. Add Product (Admin Only - simplified check)
       if (url.pathname === '/api/products' && request.method === 'POST') {
         const product = await request.json();
 
@@ -121,7 +172,10 @@ export default {
           tags: product.tags,
           features: product.features,
           images: product.images,
-          compatibility: product.compatibility
+          compatibility: product.compatibility,
+          // 파일 관련 정보 저장 (다운로드 URL, 파일명 등)
+          downloadUrl: product.downloadUrl,
+          fileData: product.fileData
         });
         const stats = JSON.stringify({ views: 0, downloads: 0 });
 
@@ -140,7 +194,7 @@ export default {
       // ORDER ROUTES
       // ==========================================
 
-      // 5. Create Order
+      // 6. Create Order
       if (url.pathname === '/api/orders' && request.method === 'POST') {
         const { userId, items, total } = await request.json();
 

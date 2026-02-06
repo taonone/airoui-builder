@@ -13,6 +13,11 @@ database_id = "709f79be-0567-44b5-9b2b-82cbe128ffb0"
 # binding = "BUCKET"
 # bucket_name = "airoui-bucket"
 
+# R2 Bucket 연결 설정
+[[r2_buckets]]
+binding = "MY_BUCKET"
+bucket_name = "airoui-files"
+
 # KV Namespace Binding (Optional, for sessions)
 # [[kv_namespaces]]
 # binding = "KV"
