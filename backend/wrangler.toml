@@ -1,0 +1,19 @@
+name = "airoui-backend"
+main = "worker.js"
+compatibility_date = "2024-02-05"
+
+# D1 Database Binding
+[[d1_databases]]
+binding = "DB"
+database_name = "airoui-db"
+database_id = "709f79be-0567-44b5-9b2b-82cbe128ffb0"
+
+# R2 Bucket Binding (Optional, for images)
+# [[r2_buckets]]
+# binding = "BUCKET"
+# bucket_name = "airoui-bucket"
+
+# KV Namespace Binding (Optional, for sessions)
+# [[kv_namespaces]]
+# binding = "KV"
+# id = "REPLACE_WITH_YOUR_KV_ID"

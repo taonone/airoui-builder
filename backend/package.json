@@ -1,0 +1,15 @@
+{
+  "name": "airoui-backend",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker Backend for Airoui",
+  "main": "worker.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3"
+  },
+  "devDependencies": {
+    "wrangler": "^4.63.0"
+  }
+}

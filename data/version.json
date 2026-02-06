@@ -1,0 +1,9 @@
+{
+    "version": "1.0.1", 
+    "last_updated": "2026-02-06",
+    "files": {
+        "calculator-app.html": "v1.0.0",
+        "notes-app.html": "v1.0.0",
+        "drawing-app.html": "v1.0.0"
+    }
+}
