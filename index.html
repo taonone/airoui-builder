@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>4160 Airoui Software Market & Testing Lab V5.1</title>
+    <title>4200 Airoui Software Market & Testing Lab V5.1</title>
     <!-- TailwindCSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lemon Squeezy SDK -->
@@ -8618,6 +8618,55 @@ ${Utils.truncate(newCode, 500)}
                 }
             },
 
+            // [수정된 handleFileUpload 함수]
+            handleFileUpload: async function (event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                // UI 업데이트: 업로드 중 표시
+                const uploadSpan = document.getElementById('uploadFileName');
+                if (uploadSpan) {
+                    uploadSpan.textContent = '⏳ 업로드 중... (잠시만 기다려주세요)';
+                    uploadSpan.style.color = '#f59e0b'; // Yellow
+                }
+
+                try {
+                    // 1. 파일명 안전하게 변환 (한글/특수문자 처리)
+                    // encodeURIComponent를 사용하여 한글 파일명도 보존하거나, 영문으로 변환
+                    const safeName = 'app_' + Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+
+                    // 2. Cloudflare Worker로 전송 (PUT 방식)
+                    const response = await fetch(`${CloudManager.apiBase}/api/upload?filename=${safeName}`, {
+                        method: 'PUT',
+                        body: file // 파일 자체를 바이너리로 전송
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        // 3. 성공 시 URL을 입력창에 자동 입력
+                        const urlInput = document.getElementById('prodDownloadUrl');
+                        if (urlInput) urlInput.value = result.url;
+
+                        if (uploadSpan) {
+                            uploadSpan.textContent = `✅ 업로드 완료`;
+                            uploadSpan.style.color = '#10b981'; // Green
+                        }
+
+                        ToastManager.success('파일이 클라우드 서버에 안전하게 저장되었습니다!');
+                    } else {
+                        throw new Error('업로드 응답 실패');
+                    }
+                } catch (e) {
+                    console.error(e);
+                    if (uploadSpan) {
+                        uploadSpan.textContent = '❌ 업로드 실패';
+                        uploadSpan.style.color = '#ef4444'; // Red
+                    }
+                    ToastManager.error('파일 전송 중 오류가 발생했습니다.');
+                }
+            },
+
             renderMediaPreviews: function () {
                 const container = DOM.byId('mediaPreviewContainer');
                 if (!container) return;
@@ -8894,6 +8943,27 @@ ${Utils.truncate(newCode, 500)}
                             </div>
                         </div>
 
+                        <!-- [NEW] Distribution File Upload (Cloudflare R2) -->
+                        <div class="form-group mt-4 p-4 border border-green-900/30 rounded bg-green-900/10">
+                            <label class="form-label mb-2 text-green-400">배포 파일 업로드 (Cloudflare R2)</label>
+                            <div class="flex flex-col gap-3">
+                                <div class="flex items-center gap-3">
+                                    <label class="btn btn-sm btn-success cursor-pointer">
+                                        ☁️ 배포 파일 선택 & 업로드
+                                        <input type="file" hidden onchange="AdminDashboard.handleFileUpload(event)">
+                                    </label>
+                                    <span id="uploadFileName" class="text-xs text-gray-400">선택된 파일 없음</span>
+                                </div>
+                                <div>
+                                    <label class="text-xs text-gray-500 mb-1 block">다운로드 URL (업로드 시 자동 입력)</label>
+                                    <input type="text" class="form-input text-xs font-mono text-green-300" 
+                                           id="prodDownloadUrl" 
+                                           value="${isEdit ? (product.downloadUrl || '') : ''}" 
+                                           placeholder="https://r2.airoui.com/..." readonly>
+                                </div>
+                            </div>
+                        </div>
+
                         <input type="hidden" id="prodId" value="${isEdit ? product.id : ''}">
                     </div>
                 `;
@@ -8930,6 +9000,9 @@ ${Utils.truncate(newCode, 500)}
                 const compatibility = DOM.byId('prodCompatibility').value;
                 const fileSize = DOM.byId('prodFileSize').value;
 
+                // [NEW] Download URL from R2
+                const downloadUrl = DOM.byId('prodDownloadUrl').value;
+
                 const featuresInput = DOM.byId('prodFeatures').value;
                 const features = featuresInput ? featuresInput.split('\n').map(f => f.trim()).filter(f => f) : [];
 
@@ -8956,6 +9029,7 @@ ${Utils.truncate(newCode, 500)}
                     description,
                     sourceCode,
                     sourceFile: sourceFile, // [NEW] GitHub sync file mapping
+                    downloadUrl: downloadUrl, // [NEW] Cloudflare R2 Download URL
                     tags,
                     license,
                     compatibility,
