@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>4200 Airoui Software Market & Testing Lab V5.1</title>
+    <title>5700 Airoui Software Market & Testing Lab V5.1</title>
     <!-- TailwindCSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lemon Squeezy SDK -->
@@ -4006,6 +4006,15 @@
     </div>
 
     <script>
+        // ========================================
+        // GLOBAL CONFIGURATION
+        // ========================================
+        const CONFIG = {
+            // [IMPORTANT] Update this URL after deploying the backend (npx wrangler deploy)
+            // Example: https://airoui-backend.taonone.workers.dev
+            API_BASE_URL: 'https://airoui-backend.taonone.workers.dev'
+        };
+
         /* ========================================
            PART 1: GLOBAL UTILITY FUNCTIONS
            ======================================== */
@@ -5706,6 +5715,79 @@ ${Utils.truncate(newCode, 500)}
                 'Component', 'Framework', 'Library', 'Tool', 'Utility', 'Plugin'
             ],
 
+            // [NEW] Database Cleanup Utility
+            // Keeps only 1 "best" product per category and removes the rest
+            cleanupDatabase: async function () {
+                if (!confirm('경고: 이 작업은 각 카테고리별 1개의 상품만 남기고 나머지 모든 데이터를 삭제합니다. 진행하시겠습니까?')) return;
+
+                const storeName = DatabaseManager.stores.products;
+
+                try {
+                    console.log('🧹 데이터베이스 정리 시작...');
+                    const allProducts = await DatabaseManager.getAll(storeName);
+                    console.log(`총 ${allProducts.length}개의 상품 발견.`);
+
+                    const productsByCategory = {};
+                    // Initialize buckets for all categories
+                    this.categories.forEach(c => productsByCategory[c.id] = []);
+
+                    // Group products
+                    allProducts.forEach(p => {
+                        // Use categoryId, fallback to mapped ID if needed
+                        const catId = p.categoryId || (p.category_id ? p.category_id : 'cat_020');
+                        if (productsByCategory[catId]) {
+                            productsByCategory[catId].push(p);
+                        } else {
+                            // If category doesn't exist in our list, put in 'various'
+                            productsByCategory['cat_020'].push(p);
+                        }
+                    });
+
+                    const productsToKeep = [];
+
+                    // Select 1 best product per category
+                    for (const catId in productsByCategory) {
+                        const items = productsByCategory[catId];
+                        if (items.length > 0) {
+                            // Priority 1: Has explicit 'isReal' flag (custom field if we used it)
+                            // Priority 2: Has valid sourceCode (likely a working app)
+                            // Priority 3: Has fileData (uploaded file)
+                            // Priority 4: Oldest (likely the original seed) or Newest? Let's keep Newest.
+
+                            // Sort by completeness and then date
+                            items.sort((a, b) => {
+                                const aScore = (a.sourceCode ? 2 : 0) + (a.fileData ? 1 : 0);
+                                const bScore = (b.sourceCode ? 2 : 0) + (b.fileData ? 1 : 0);
+                                return bScore - aScore || new Date(b.createdAt) - new Date(a.createdAt);
+                            });
+
+                            const bestItem = items[0];
+                            console.log(`[${catId}] 유지: ${bestItem.name} (Score check: Source=${!!bestItem.sourceCode}, File=${!!bestItem.fileData})`);
+                            productsToKeep.push(bestItem);
+                        }
+                    }
+
+                    // Clear and Repopulate
+                    await DatabaseManager.clear(storeName);
+                    await DatabaseManager.bulkPut(storeName, productsToKeep);
+
+                    // Sync this cleaned state to Cloud if needed (Optional, for now just local)
+                    // If we want to clean cloud too, we'd need a delete API or overwrite API.
+                    // For now, let's just clean local. 
+                    // To propagate to cloud, we might need to clear cloud first? 
+                    // Current request is "Database" which usually implies local context first. 
+                    // Sync logic sends Local -> Cloud if we implement the overwrite properly.
+
+                    console.log(`✅ 정리 완료. ${productsToKeep.length}개의 상품이 유지되었습니다.`);
+                    alert(`정리 완료! ${productsToKeep.length}개의 상품만 남았습니다. 페이지를 새로고침합니다.`);
+                    location.reload();
+
+                } catch (e) {
+                    console.error('Cleanup failed:', e);
+                    alert('정리 중 오류 발생: ' + e.message);
+                }
+            },
+
             // Author names
             authors: [
                 { name: '김개발', avatar: 'KD' },
@@ -6768,8 +6850,48 @@ ${Utils.truncate(newCode, 500)}
             // Generate all products (1200+)
             generateAllProducts: function () {
                 const products = [];
-                const productsPerCategory = 100;
+                const productsPerCategory = 1;
                 let productId = 1;
+
+                // [NEW] Dummy Product for AI Context Testing
+                products.push({
+                    id: `prod_ai_test_001`,
+                    name: '생산1등달성 소프트웨어',
+                    slug: 'productivity-booster-pro',
+                    categoryId: this.categories[0].id, // productivity
+                    categoryName: this.categories[0].name,
+                    categorySlug: this.categories[0].slug,
+                    categoryIcon: this.categories[0].icon,
+                    authorId: 'author_admin',
+                    authorName: 'Airoui Official',
+                    authorAvatar: 'AO',
+                    price: 50000,
+                    originalPrice: 100000,
+                    isFree: false,
+                    rating: 5.0,
+                    reviewCount: 999,
+                    downloads: 100000,
+                    views: 500000,
+                    description: '업무 효율을 300% 이상 향상시키는 혁신적인 생산성 도구입니다.',
+                    longDescription: '생산1등달성 소프트웨어는 당신의 업무 습관을 분석하고 최적화하여 놀라운 성과를 만들어냅니다. AI 기반 일정 관리, 자동화 툴, 그리고 집중력 향상 기능을 제공합니다.',
+                    features: ['AI 일정 최적화', '업무 자동화 매크로', '집중 모드', '성과 분석 리포트'],
+                    tags: ['생산성', 'AI', '업무', '효율'],
+                    thumbnail: null,
+                    thumbnailGradient: ['#FF0080', '#7928CA'],
+                    screenshots: [],
+                    sourceCode: this.generateDemoCode('productivity', 'Productivity Booster'),
+                    sourceFile: 'productivity-booster.html',
+                    version: '1.0.0',
+                    fileSize: '50 MB',
+                    compatibility: 'All Platforms',
+                    license: 'Commercial',
+                    featured: true,
+                    isNew: true,
+                    isTrending: true,
+                    status: 'active',
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                });
 
                 for (let catIndex = 0; catIndex < this.categories.length; catIndex++) {
                     for (let i = 0; i < productsPerCategory; i++) {
@@ -7526,7 +7648,7 @@ ${Utils.truncate(newCode, 500)}
                 return `
                     <div class="header-auth-buttons">
                         <button class="btn btn-ghost" onclick="ModalManager.open('loginModal')">Login</button>
-                        <button class="btn btn-primary" onclick="ModalManager.open('registerModal')">회원가입(Join)</button>
+                        <button class="btn btn-primary" onclick="ModalManager.open('registerModal')">회원가입(Register)</button>
                     </div>
                 `;
             }
@@ -8002,25 +8124,36 @@ ${Utils.truncate(newCode, 500)}
 
                     if (!newProduct.slug) newProduct.slug = Utils.slugify(newProduct.name);
 
-                    // 1. Try Cloud Save
+                    // 1. Try Cloud Save (Priority)
+                    let cloudSuccess = false;
+                    let cloudError = null;
                     try {
                         const cloudRes = await CloudManager.saveProduct(newProduct);
-                        if (!cloudRes.ok) {
+                        if (cloudRes.ok) {
+                            cloudSuccess = true;
+                        } else {
+                            cloudError = cloudRes.error;
                             console.warn('Cloud save product failed:', cloudRes.error);
                         }
                     } catch (e) {
+                        cloudError = e.message;
                         console.warn('Cloud save product error:', e);
                     }
 
-                    // 2. Always Save Local (for admin dashboard cache/view)
+                    // 2. Always Save Local (Optimistic UI)
                     await DatabaseManager.add(DatabaseManager.stores.products, newProduct);
-                    return { success: true, product: newProduct };
+
+                    return {
+                        success: true,
+                        product: newProduct,
+                        cloudSynced: cloudSuccess,
+                        cloudError: cloudError
+                    };
                 } catch (error) {
                     console.error('Add product error:', error);
                     return { success: false, error: error.message };
                 }
             },
-
             // Update existing product
             update: async function (productData) {
                 if (!AuthManager.isAdmin()) return { success: false, error: 'Unauthorized' };
@@ -8035,8 +8168,31 @@ ${Utils.truncate(newCode, 500)}
                         updatedAt: new Date().toISOString()
                     };
 
+                    // 1. Try Cloud Save (Priority)
+                    let cloudSuccess = false;
+                    let cloudError = null;
+                    try {
+                        const cloudRes = await CloudManager.saveProduct(updatedProduct);
+                        if (cloudRes.ok) {
+                            cloudSuccess = true;
+                        } else {
+                            cloudError = cloudRes.error;
+                            console.warn('Cloud save product failed:', cloudRes.error);
+                        }
+                    } catch (e) {
+                        cloudError = e.message;
+                        console.warn('Cloud save product error:', e);
+                    }
+
+                    // 2. Always Save Local
                     await DatabaseManager.put(DatabaseManager.stores.products, updatedProduct);
-                    return { success: true, product: updatedProduct };
+
+                    return {
+                        success: true,
+                        product: updatedProduct,
+                        cloudSynced: cloudSuccess,
+                        cloudError: cloudError
+                    };
                 } catch (error) {
                     console.error('Update product error:', error);
                     return { success: false, error: error.message };
@@ -8044,17 +8200,50 @@ ${Utils.truncate(newCode, 500)}
             },
 
             // Delete product
-            delete: async function (productId) {
-                if (!AuthManager.isAdmin()) return { success: false, error: 'Unauthorized' };
+            delete: async function (id, skipConfirm = false) {
+                if (!skipConfirm && !confirm('정말로 이 소프트웨어를 영구 삭제하시겠습니까? (서버에서도 삭제됩니다)')) return { success: false };
 
                 try {
-                    await DatabaseManager.delete(DatabaseManager.stores.products, productId);
-                    return { success: true };
-                } catch (error) {
-                    console.error('Delete product error:', error);
-                    return { success: false, error: error.message };
+                    // 1. 서버(Cloudflare D1)에 삭제 요청 보내기
+                    const response = await fetch(`${CloudManager.apiBase}/api/products?id=${id}`, {
+                        method: 'DELETE'
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        // 2. 서버 삭제 성공 시, 로컬 DB(IndexedDB)에서도 삭제
+                        await DatabaseManager.delete(DatabaseManager.stores.products, id);
+
+                        // Only show toast and reload if NOT in bulk mode (bulk mode handles its own UI updates)
+                        if (!skipConfirm) {
+                            ToastManager.success('삭제되었습니다.');
+
+                            // 3. UI 새로고침
+                            if (location.hash.includes('dashboard')) {
+                                if (typeof AdminDashboard !== 'undefined') {
+                                    AdminDashboard.loadProducts();
+                                } else {
+                                    location.reload();
+                                }
+                            } else {
+                                if (typeof ProductsPage !== 'undefined') {
+                                    ProductsPage.render();
+                                } else {
+                                    location.reload();
+                                }
+                            }
+                        }
+                        return { success: true };
+                    } else {
+                        throw new Error('서버 삭제 실패');
+                    }
+                } catch (e) {
+                    console.error('Delete Error:', e);
+                    if (!skipConfirm) ToastManager.error('삭제 중 오류가 발생했습니다.');
+                    return { success: false, error: e.message };
                 }
-            }
+            },
         };
 
         // ========================================
@@ -8150,11 +8339,12 @@ ${Utils.truncate(newCode, 500)}
         // Cloud Manager (Backend Integration)
         // ========================================
         const CloudManager = {
-            apiBase: 'https://airoui-backend.taonone.workers.dev', // Default placeholder
+            apiBase: CONFIG.API_BASE_URL, // Use global config
 
             // Helper for fetch with auth
             request: async function (endpoint, method = 'GET', body = null) {
                 const url = `${this.apiBase}${endpoint}`;
+                console.log(`☁️ Cloud Request: ${method} ${url}`, 'CONFIG:', CONFIG); // [DEBUG] Log URL and CONFIG
                 const headers = { 'Content-Type': 'application/json' };
 
                 // Add token if exists
@@ -8168,11 +8358,26 @@ ${Utils.truncate(newCode, 500)}
 
                 try {
                     const response = await fetch(url, options);
+                    if (!response.ok) {
+                        console.error(`Cloud Request Failed: ${response.status} ${response.statusText}`);
+                        try {
+                            const text = await response.text();
+                            console.error('Response Body:', text);
+                            return { ok: false, status: response.status, error: text };
+                        } catch (e) {
+                            return { ok: false, status: response.status, error: response.statusText };
+                        }
+                    }
                     const data = await response.json();
-                    return { ok: response.ok, status: response.status, data };
+                    return { ok: true, status: response.status, data };
                 } catch (error) {
-                    console.error(`Cloud Request Error (${endpoint}):`, error);
-                    return { ok: false, error: 'Network Error' };
+                    console.error(`☁️ Cloud Request Monitor: Network Error at ${endpoint}`);
+                    console.error('Error Name:', error.name);
+                    console.error('Error Message:', error.message);
+                    if (error.cause) console.error('Error Cause:', error.cause);
+                    console.trace('Stack Trace');
+
+                    return { ok: false, error: error.message };
                 }
             },
 
@@ -8195,6 +8400,83 @@ ${Utils.truncate(newCode, 500)}
 
             login: async function (email, password) {
                 return this.request('/api/auth/login', 'POST', { email, password });
+            },
+
+            // [추가] 클라우드 데이터 가져와서 로컬 DB와 동기화
+            // [CloudManager 객체 내부 수정]
+            syncWithCloud: async function () {
+                try {
+                    console.log('☁️ 클라우드 동기화 시작...');
+                    const result = await this.getProducts();
+
+                    if (result.ok && Array.isArray(result.data)) {
+
+                        const cloudProducts = result.data.map(serverItem => {
+                            // 1. details 파싱 (여기에 fileSize, license 등이 들어있음)
+                            const details = typeof serverItem.details === 'string' ? JSON.parse(serverItem.details) : (serverItem.details || {});
+                            const stats = typeof serverItem.stats === 'string' ? JSON.parse(serverItem.stats) : (serverItem.stats || {});
+
+                            // 카테고리 매핑 로직
+                            const rawCatId = serverItem.category_id || serverItem.categoryId;
+                            let matchedCat = DataGenerator.categories.find(c => c.id === rawCatId);
+                            if (!matchedCat) {
+                                matchedCat = DataGenerator.categories.find(c => c.id === 'cat_020');
+                            }
+
+                            return {
+                                ...serverItem,
+                                // [핵심] details 안에 있는 내용(fileSize, license 등)을 최상위로 덮어쓰기
+                                ...details,
+                                ...stats,
+
+                                // 기본 필드 매핑
+                                authorId: serverItem.user_id || serverItem.authorId,
+                                categoryId: matchedCat.id,
+                                categoryName: matchedCat.name,
+                                categorySlug: matchedCat.slug,
+                                categoryIcon: matchedCat.icon,
+
+                                createdAt: serverItem.created_at || serverItem.createdAt,
+                                updatedAt: serverItem.updated_at || serverItem.updatedAt,
+
+                                // [오류 수정] Rating이 없으면 0으로 초기화
+                                rating: serverItem.rating || 0,
+
+                                // [오류 수정] 소스코드 위치 보정 (details 내부가 우선)
+                                sourceCode: details.sourceCode || serverItem.source_code || serverItem.sourceCode || '',
+
+                                // [오류 수정] 파일 관련 필드 명시적 매핑
+                                fileSize: details.fileSize || serverItem.fileSize || 'Unknown',
+                                license: details.license || serverItem.license || 'Unknown',
+                                compatibility: details.compatibility || serverItem.compatibility || 'All Browsers',
+
+                                // 정리
+                                details: undefined,
+                                stats: undefined,
+                                user_id: undefined,
+                                category_id: undefined,
+                                created_at: undefined,
+                                updated_at: undefined,
+                                source_code: undefined
+                            };
+                        });
+
+                        await DatabaseManager.bulkPut(DatabaseManager.stores.products, cloudProducts);
+                        console.log(`✅ 클라우드 동기화 완료: ${cloudProducts.length}개 상품 로드됨`);
+
+                        if (location.hash.includes('products') && typeof ProductsPage !== 'undefined') {
+                            ProductsPage.render(Router.currentParams);
+                        }
+
+                        return true;
+                    } else {
+                        console.warn('클라우드 상품 목록을 가져오지 못했습니다.');
+                        return false;
+                    }
+                } catch (e) {
+                    console.error('Cloud Sync Error:', e);
+                    return false;
+                }
             },
 
             // Data
@@ -8529,7 +8811,7 @@ ${Utils.truncate(newCode, 500)}
                             ${toggleLabel}
                         </button>
                     </div>
-                    <div class="legal-doc-container" style="max-height: 500px; overflow-y: auto; text-align: left; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    <div class="legal-doc-container" style="max-height: 550px; overflow-y: auto; text-align: left; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px;">
                         ${content}
                     </div>
                 `;
@@ -8538,7 +8820,7 @@ ${Utils.truncate(newCode, 500)}
                     id: 'legalModal',
                     title: currentTitle,
                     content: wrappedContent,
-                    width: '700px',
+                    width: '910px',
                     footer: `<button class="btn btn-primary" onclick="ModalManager.close('legalModal')">Close</button>`
                 });
             },
@@ -8548,9 +8830,8 @@ ${Utils.truncate(newCode, 500)}
                 this.currentLang = newLang;
                 localStorage.setItem('app_lang', newLang);
 
-                // Save preference if needed (optional, assuming volatile for now or managed by SettingsManager if integrated)
-                // For this specific request, we force reload to ensure currency and all UI text updates instantly globally.
-                location.reload();
+                // Re-render the modal with the new language instead of reloading the page
+                this.renderModal();
             }
         };
 
@@ -8594,28 +8875,69 @@ ${Utils.truncate(newCode, 500)}
                 const files = event.target.files;
                 if (!files.length) return;
 
+                // Show loading state (generic)
+                ToastManager.info(`이미지 ${files.length}개 업로드 중...`);
+
                 for (let file of files) {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        this.tempImages.push(e.target.result);
-                        this.renderMediaPreviews();
-                    };
-                    reader.readAsDataURL(file);
+                    try {
+                        // 1. Upload to R2
+                        const safeName = 'img_' + Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+                        const response = await fetch(`${CloudManager.apiBase}/api/upload?filename=${safeName}`, {
+                            method: 'PUT',
+                            body: file
+                        });
+                        const result = await response.json();
+
+                        if (result.success) {
+                            // 2. Add R2 URL to state
+                            this.tempImages.push(result.url);
+                            ToastManager.success(`이미지 업로드 완료: ${file.name}`);
+                        } else {
+                            throw new Error(result.error || 'Upload failed');
+                        }
+                    } catch (e) {
+                        console.error('Image Upload Error:', e);
+                        ToastManager.error(`이미지 업로드 실패 (${file.name}): ${e.message}`);
+                    }
                 }
+
+                // Clear input
+                event.target.value = '';
+                this.renderMediaPreviews();
             },
 
             handleVideoSelect: async function (event) {
                 const files = event.target.files;
                 if (!files.length) return;
 
+                ToastManager.info(`동영상 ${files.length}개 업로드 중...`);
+
                 for (let file of files) {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        this.tempVideos.push(e.target.result);
-                        this.renderMediaPreviews();
-                    };
-                    reader.readAsDataURL(file);
+                    try {
+                        // 1. Upload to R2
+                        const safeName = 'vid_' + Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+                        const response = await fetch(`${CloudManager.apiBase}/api/upload?filename=${safeName}`, {
+                            method: 'PUT',
+                            body: file
+                        });
+                        const result = await response.json();
+
+                        if (result.success) {
+                            // 2. Add R2 URL to state
+                            this.tempVideos.push(result.url);
+                            ToastManager.success(`동영상 업로드 완료: ${file.name}`);
+                        } else {
+                            throw new Error(result.error || 'Upload failed');
+                        }
+                    } catch (e) {
+                        console.error('Video Upload Error:', e);
+                        ToastManager.error(`동영상 업로드 실패 (${file.name}): ${e.message}`);
+                    }
                 }
+
+                // Clear input
+                event.target.value = '';
+                this.renderMediaPreviews();
             },
 
             // [수정된 handleFileUpload 함수]
@@ -8672,35 +8994,74 @@ ${Utils.truncate(newCode, 500)}
                 if (!container) return;
 
                 const imagesHtml = this.tempImages.map((img, idx) => `
-                    <div class="relative group w-20 h-20 bg-gray-700 rounded overflow-hidden">
+                    <div class="relative group w-24 h-24 bg-gray-700 rounded-lg overflow-hidden border border-gray-600 shadow-sm">
                         <img src="${img}" class="w-full h-full object-cover">
-                        <button class="absolute top-0 right-0 bg-red-500 text-white p-1 text-xs opacity-0 group-hover:opacity-100" 
-                                onclick="AdminDashboard.removeMedia('image', ${idx})">×</button>
+                        <button class="absolute top-1 right-1 bg-red-600 hover:bg-red-700 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-md transition-colors z-10" 
+                                onclick="AdminDashboard.handleMediaDelete('image', ${idx})" title="삭제">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
                     </div>
                 `).join('');
 
                 const videosHtml = this.tempVideos.map((vid, idx) => `
-                    <div class="relative group w-20 h-20 bg-gray-700 rounded overflow-hidden flex items-center justify-center">
-                        <div class="text-xs text-white">Video ${idx + 1}</div>
-                        <button class="absolute top-0 right-0 bg-red-500 text-white p-1 text-xs opacity-0 group-hover:opacity-100" 
-                                onclick="AdminDashboard.removeMedia('video', ${idx})">×</button>
+                    <div class="relative group w-24 h-24 bg-gray-800 rounded-lg overflow-hidden border border-gray-600 shadow-sm flex items-center justify-center">
+                        <div class="text-xs text-gray-300 flex flex-col items-center">
+                            <span class="text-2xl mb-1">🎥</span>
+                            <span>Video ${idx + 1}</span>
+                        </div>
+                        <button class="absolute top-1 right-1 bg-red-600 hover:bg-red-700 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-md transition-colors z-10" 
+                                onclick="AdminDashboard.handleMediaDelete('video', ${idx})" title="삭제">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
                     </div>
                 `).join('');
 
                 container.innerHTML = `
-                    <div class="flex flex-wrap gap-2 mb-2">${imagesHtml}</div>
-                    <div class="flex flex-wrap gap-2">${videosHtml}</div>
+                    <div class="flex flex-wrap gap-3 mb-2">${imagesHtml}</div>
+                    <div class="flex flex-wrap gap-3">${videosHtml}</div>
                 `;
             },
 
-            removeMedia: function (type, index) {
-                if (type === 'image') {
-                    this.tempImages.splice(index, 1);
-                } else {
-                    this.tempVideos.splice(index, 1);
+            // [NEW] Handle Media Delete
+            handleMediaDelete: async function (type, index) {
+                // Get URL
+                const url = type === 'image' ? this.tempImages[index] : this.tempVideos[index];
+
+                if (!confirm('정말 삭제하시겠습니까? 클라우드에서도 영구적으로 삭제됩니다.')) return;
+
+                // Extract filename from URL (assuming layout: origin/files/filename)
+                // or just use the last part of path
+                const filename = url.split('/').pop();
+
+                try {
+                    const response = await fetch(`${CloudManager.apiBase}/api/upload?filename=${filename}`, {
+                        method: 'DELETE'
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        if (type === 'image') {
+                            this.tempImages.splice(index, 1);
+                        } else {
+                            this.tempVideos.splice(index, 1);
+                        }
+                        this.renderMediaPreviews();
+                        ToastManager.success('파일이 삭제되었습니다.');
+                    } else {
+                        throw new Error(result.error || 'Delete failed');
+                    }
+                } catch (e) {
+                    console.error('Media Delete Error:', e);
+                    ToastManager.error(`삭제 실패: ${e.message}`);
                 }
-                this.renderMediaPreviews();
             },
+
+
 
             render: async function () {
                 if (!AuthManager.isAdmin()) {
@@ -8714,6 +9075,9 @@ ${Utils.truncate(newCode, 500)}
                         <div class="dashboard-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:30px;">
                             <h1>관리자 대시보드</h1>
                             <div style="display:flex; gap: 10px;">
+                                <button class="btn btn-danger" id="btnBulkDelete" onclick="AdminDashboard.deleteSelectedProducts()" disabled>
+                                    <span>🗑️ 선택 삭제 (0)</span>
+                                </button>
                                 <button class="btn btn-outline" onclick="AdminDashboard.openGitHubSettings()">
                                     <span>⚙️ GitHub 설정</span>
                                 </button>
@@ -8721,7 +9085,6 @@ ${Utils.truncate(newCode, 500)}
                                     <span>➕ 소프트웨어 추가</span>
                                 </button>
                             </div>
-                        </div>
                         </div>
 
                         <!-- Toolbar -->
@@ -8760,6 +9123,9 @@ ${Utils.truncate(newCode, 500)}
                                 <table class="w-full text-left border-collapse">
                                     <thead>
                                         <tr class="border-b border-gray-700 text-gray-400">
+                                            <th class="p-3 w-10">
+                                                <input type="checkbox" id="checkAll" onclick="AdminDashboard.toggleSelectAll(this)">
+                                            </th>
                                             <th class="p-3">ID</th>
                                             <th class="p-3">이름</th>
                                             <th class="p-3">카테고리</th>
@@ -8769,7 +9135,7 @@ ${Utils.truncate(newCode, 500)}
                                         </tr>
                                     </thead>
                                     <tbody id="adminProductList">
-                                        <tr><td colspan="6" class="p-3 text-center">로딩 중...</td></tr>
+                                        <tr><td colspan="7" class="p-3 text-center">로딩 중...</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -8807,13 +9173,25 @@ ${Utils.truncate(newCode, 500)}
                 // 3. Limit
                 filtered = filtered.slice(0, this.filterState.limit);
 
+                // Reset Checkbox state
+                const btnBulk = DOM.byId('btnBulkDelete');
+                if (btnBulk) {
+                    btnBulk.disabled = true;
+                    btnBulk.innerHTML = `<span>🗑️ 선택 삭제 (0)</span>`;
+                }
+                const checkAll = DOM.byId('checkAll');
+                if (checkAll) checkAll.checked = false;
+
                 if (filtered.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" class="p-3 text-center">검색 결과가 없습니다.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" class="p-3 text-center">검색 결과가 없습니다.</td></tr>';
                     return;
                 }
 
                 tbody.innerHTML = filtered.map(p => `
                     <tr class="border-b border-gray-800 hover:bg-white/5">
+                        <td class="p-3">
+                            <input type="checkbox" class="product-check" value="${p.id}" onchange="AdminDashboard.updateBulkActionState()">
+                        </td>
                         <td class="p-3 font-mono text-xs opacity-70">${p.id}</td>
                         <td class="p-3 font-bold">${p.name}</td>
                         <td class="p-3"><span class="badge badge-secondary">${p.categoryName}</span></td>
@@ -8825,6 +9203,56 @@ ${Utils.truncate(newCode, 500)}
                         </td>
                     </tr>
                 `).join('');
+            },
+
+            // [Bulk Delete Logic]
+            toggleSelectAll: function (source) {
+                const checkboxes = document.querySelectorAll('.product-check');
+                checkboxes.forEach(cb => cb.checked = source.checked);
+                this.updateBulkActionState();
+            },
+
+            updateBulkActionState: function () {
+                const checkboxes = document.querySelectorAll('.product-check:checked');
+                const btn = DOM.byId('btnBulkDelete');
+                const count = checkboxes.length;
+
+                if (btn) {
+                    btn.innerHTML = `<span>🗑️ 선택 삭제 (${count})</span>`;
+                    btn.disabled = count === 0;
+                }
+            },
+
+            deleteSelectedProducts: async function () {
+                const checkboxes = document.querySelectorAll('.product-check:checked');
+                const count = checkboxes.length;
+                if (count === 0) return;
+
+                if (!confirm(`${count}개의 상품을 정말로 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) return;
+
+                const ids = Array.from(checkboxes).map(cb => cb.value);
+                let successCount = 0;
+                let failCount = 0;
+
+                // Show loading or disable inputs logic here if needed
+
+                for (const id of ids) {
+                    const result = await ProductManager.delete(id, true); // Pass true to skip individual confirmations
+                    if (result.success) successCount++;
+                    else failCount++;
+                }
+
+                if (successCount > 0) {
+                    ToastManager.success(`${successCount}개 상품이 삭제되었습니다.`);
+                    // GitHub Sync (Bulk)
+                    GitHubManager.syncProducts();
+                }
+
+                if (failCount > 0) {
+                    ToastManager.error(`${failCount}개 삭제 실패.`);
+                }
+
+                this.loadProducts();
             },
 
             deleteProduct: async function (id) {
@@ -8983,79 +9411,99 @@ ${Utils.truncate(newCode, 500)}
             },
 
             saveProduct: async function () {
-                const id = DOM.byId('prodId').value;
-                const name = DOM.byId('prodName').value;
-                const price = parseInt(DOM.byId('prodPrice').value) || 0;
-                const categoryId = DOM.byId('prodCategory').value;
-                const category = DataGenerator.categories.find(c => c.id === categoryId);
-                const version = DOM.byId('prodVersion').value;
-                const description = DOM.byId('prodDescription').value;
-                const sourceCode = DOM.byId('prodSourceCode').value;
+                // 1. 기본 정보 가져오기
+                const id = document.getElementById('prodId').value;
+                const name = document.getElementById('prodName').value;
+                const price = parseInt(document.getElementById('prodPrice').value) || 0;
+                const categoryId = document.getElementById('prodCategory').value;
+                const version = document.getElementById('prodVersion').value;
+                const description = document.getElementById('prodDescription').value;
+                const sourceCode = document.getElementById('prodSourceCode').value;
 
-                // Extended Metadata
-                const tagsInput = DOM.byId('prodTags').value;
+                // 2. [핵심 수정] 누락되었던 세부 정보 가져오기
+                // 값을 입력하지 않으면 빈 문자열('') 대신 기본값이나 null 처리
+                const tagsInput = document.getElementById('prodTags').value;
                 const tags = tagsInput ? tagsInput.split(',').map(t => t.trim()).filter(t => t) : [];
 
-                const license = DOM.byId('prodLicense').value;
-                const compatibility = DOM.byId('prodCompatibility').value;
-                const fileSize = DOM.byId('prodFileSize').value;
+                // ★ 여기가 문제의 원인이었던 부분입니다 (DOM에서 값 읽기 추가)
+                const license = document.getElementById('prodLicense').value || 'Unknown';
+                const compatibility = document.getElementById('prodCompatibility').value || 'All Browsers';
+                const fileSize = document.getElementById('prodFileSize').value || 'Unknown';
 
-                // [NEW] Download URL from R2
-                const downloadUrl = DOM.byId('prodDownloadUrl').value;
-
-                const featuresInput = DOM.byId('prodFeatures').value;
+                const featuresInput = document.getElementById('prodFeatures').value;
                 const features = featuresInput ? featuresInput.split('\n').map(f => f.trim()).filter(f => f) : [];
 
+                const downloadUrl = document.getElementById('prodDownloadUrl') ? document.getElementById('prodDownloadUrl').value.trim() : '';
+
+                // 유효성 검사
                 if (!name || !description) {
-                    ToastManager.error('필수 항목을 입력해주세요.');
+                    ToastManager.error('필수 항목(상품명, 설명)을 입력해주세요.');
                     return;
                 }
 
-                // Mapping generic templates to GitHub source files (simulated)
-                let sourceFile = null;
-                if (name.includes('Calc')) sourceFile = 'calculator-app.html';
-                else if (name.includes('Note')) sourceFile = 'notes-app.html';
-                else if (name.includes('Draw')) sourceFile = 'drawing-canvas.html';
+                // 3. 카테고리 정보 찾기
+                const category = DataGenerator.categories.find(c => c.id === categoryId);
 
+                // 4. 데이터 패키징
                 const productData = {
                     id: id || null,
                     name,
                     price,
                     categoryId,
-                    categoryName: category.name,
-                    categorySlug: category.slug,
-                    categoryIcon: category.icon,
+                    categoryName: category ? category.name : '기타',
+                    categorySlug: category ? category.slug : 'various',
+                    categoryIcon: category ? category.icon : '📦',
                     version,
                     description,
                     sourceCode,
-                    sourceFile: sourceFile, // [NEW] GitHub sync file mapping
-                    downloadUrl: downloadUrl, // [NEW] Cloudflare R2 Download URL
+                    // 세부 정보 포함
                     tags,
                     license,
                     compatibility,
                     fileSize,
                     features,
+                    downloadUrl,
+                    // 파일 데이터 (기존 파일 유지 로직)
+                    fileData: this.tempFileData || (id ? (await DatabaseManager.get(DatabaseManager.stores.products, id))?.fileData : null),
+
+                    // 기타 메타데이터
                     images: this.tempImages,
                     videos: this.tempVideos,
                     status: 'active',
-                    authorName: '관리자',
-                    authorId: 'user_admin',
+                    authorName: AuthManager.currentUser.name,
+                    authorId: AuthManager.currentUser.id,
                     isFree: price === 0
                 };
 
+                // 5. 저장 요청
                 let result;
+                // [수정] 새 상품이면 ID 미리 생성 (클라우드 전송용)
+                if (!id) {
+                    productData.id = 'prod_' + Date.now();
+                    productData.createdAt = new Date().toISOString();
+                }
+
                 if (id) {
                     result = await ProductManager.update(productData);
                 } else {
                     result = await ProductManager.add(productData);
                 }
 
+                // 6. 결과 처리
                 if (result.success) {
-                    ToastManager.success('저장되었습니다.');
                     ModalManager.close('productModal');
-                    this.loadProducts();
-                    // GitHub Sync
-                    GitHubManager.syncProducts();
+
+                    if (result.cloudSynced) {
+                        ToastManager.success('저장되었습니다 (서버 동기화 완료).');
+                    } else {
+                        ToastManager.warning('로컬에 저장되었으나, 서버 동기화에 실패했습니다: ' + (result.cloudError || 'Unknown Error'));
+                    }
+
+                    this.loadProducts(); // 목록 새로고침
+
+                    // [권장] 확실한 동기화를 위해 전체 목록 갱신 (선택사항, 트래픽 고려)
+                    // await CloudManager.syncWithCloud(); 
+
                 } else {
                     ToastManager.error('저장 실패: ' + result.error);
                 }
@@ -10186,7 +10634,7 @@ ${Utils.truncate(newCode, 500)}
                                     </div>
                                     <button class="nav-btn-ai" onclick="MarketAIManager.showAssistantModal()">
                                         <span class="icon">🤖</span>
-                                        <span data-i18n="nav.aiRecommend">AI 추천</span>
+                                        <span data-i18n="nav.aiRecommend">AI Counselor</span>
                                     </button>
                                 </nav>
                             </div>
@@ -10378,13 +10826,13 @@ ${Utils.truncate(newCode, 500)}
                             ${badges.length > 0 ? `<div class="product-badges">${badges.join('')}</div>` : ''}
                             ${showActions ? `
                                 <div class="product-quick-actions">
-                                    <button class="quick-action-btn" onclick="event.stopPropagation(); ProductCard.toggleFavorite('${product.id}')" title="찜하기">
+                                    <button class="quick-action-btn" onclick="event.stopPropagation(); ProductCard.toggleFavorite('${product.id}')" title="찜하기(Wishlist)">
                                         <span class="icon">${Icons.heart}</span>
                                     </button>
-                                    <button class="quick-action-btn" onclick="event.stopPropagation(); Router.navigate('product/${product.id}', { demo: true })" title="미리보기">
+                                    <button class="quick-action-btn" onclick="event.stopPropagation(); Router.navigate('product/${product.id}', { demo: true })" title="미리보기(Preview)">
                                         <span class="icon">${Icons.play}</span>
                                     </button>
-                                    <button class="quick-action-btn" onclick="event.stopPropagation(); Router.navigate('studio', { productId: '${product.id}' })" title="스튜디오에서 열기">
+                                    <button class="quick-action-btn" onclick="event.stopPropagation(); Router.navigate('studio', { productId: '${product.id}' })" title="스튜디오에서 열기(Open Studio)">
                                         <span class="icon">✨</span>
                                     </button>
                                 </div>
@@ -11025,7 +11473,7 @@ ${Utils.truncate(newCode, 500)}
                             </form>
 
                             <div class="auth-footer">
-                                <p>계정이 없으신가요? <a href="#" onclick="ModalManager.close('loginModal'); ModalManager.open('registerModal')">회원가입(Join)</a></p>
+                                <p>계정이 없다면(If you are not registered), <a href="#" onclick="ModalManager.close('loginModal'); ModalManager.open('registerModal')">회원가입(Register)</a></p>
                             </div>
                         </div>
                     </div>
@@ -11036,7 +11484,7 @@ ${Utils.truncate(newCode, 500)}
                 return `
                     <div class="modal modal-lg" id="registerModal">
                         <div class="modal-header">
-                            <h3 class="modal-title">회원가입(Join)</h3>
+                            <h3 class="modal-title">회원가입(Register)</h3>
                             <div class="modal-close" onclick="ModalManager.close('registerModal')">
                                 ${Icons.close}
                             </div>
@@ -11071,10 +11519,10 @@ ${Utils.truncate(newCode, 500)}
                                         <span class="form-checkbox-label">이용약관 및 개인정보처리방침에 동의합니다(I agree to the Terms of Service and Privacy Policy) *</span>
                                     </label>
                                 </div>
-                                <button type="submit" class="btn btn-primary btn-block btn-lg">회원가입(Join)</button>
+                                <button type="submit" class="btn btn-primary btn-block btn-lg">회원가입(Register)</button>
                             </form>
                             <div class="auth-footer">
-                                <p>이미 계정이 있으신가요? <a href="#" onclick="ModalManager.close('registerModal'); ModalManager.open('loginModal')">Login</a></p>
+                                <p>이미 계정을 보유하고 있다면(If you are registered) <a href="#" onclick="ModalManager.close('registerModal'); ModalManager.open('loginModal')">Login</a></p>
                             </div>
                         </div>
                     </div>
@@ -13641,9 +14089,15 @@ ${Utils.truncate(newCode, 500)}
                         return;
                     }
 
-                    const itemsHtml = items.map(item => `
+                    const itemsHtml = items.map(item => {
+                        // [FIX] Safely handle missing thumbnail/gradients
+                        const colors = (Array.isArray(item.productThumbnail) && item.productThumbnail.length >= 2)
+                            ? item.productThumbnail
+                            : ['#6366f1', '#a855f7']; // Default Indigo-Purple
+
+                        return `
                         <div class="cart-item" data-cart-id="${item.id}">
-                            <div class="cart-item-thumbnail" style="background: linear-gradient(135deg, ${item.productThumbnail[0]}, ${item.productThumbnail[1]})">
+                            <div class="cart-item-thumbnail" style="background: linear-gradient(135deg, ${colors[0]}, ${colors[1]})">
                                 <span class="cart-item-icon">📦</span>
                             </div>
                             <div class="cart-item-info">
@@ -13659,7 +14113,8 @@ ${Utils.truncate(newCode, 500)}
                                 </button>
                             </div>
                         </div>
-                    `).join('');
+                        `;
+                    }).join('');
 
                     container.innerHTML = `
                         <div class="cart-layout">
@@ -13684,7 +14139,7 @@ ${Utils.truncate(newCode, 500)}
                                     <div class="summary-divider"></div>
                                     <button class="btn btn-primary btn-block btn-lg mt-4" 
                                         onclick="CartPage.checkout()">
-                                        💳 신용카드로 결제하기 (Lemon Squeezy)
+                                        💳 ${LanguageManager.t('cart.creditCard')}
                                     </button>
                                     <p class="summary-note">${LanguageManager.t('cart.checkoutNote')}</p>
                                 </div>
@@ -16769,12 +17224,12 @@ ${Utils.truncate(newCode, 500)}
                                                 <h3 class="text-lg font-bold mb-3">미디어 갤러리</h3>
                                                 <div class="media-scroll-container flex gap-4 overflow-x-auto pb-4" style="scrollbar-width: thin;">
                                                     ${(product.videos || []).map(vid => `
-                                                        <div class="flex-none w-80 aspect-video bg-black rounded-lg overflow-hidden shadow-lg border border-gray-700">
+                                                        <div class="flex-none aspect-video bg-black rounded-lg overflow-hidden shadow-lg border border-gray-700" style="width: 512px;">
                                                             <video src="${vid}" controls class="w-full h-full object-contain"></video>
                                                         </div>
                                                     `).join('')}
                                                     ${(product.images || []).map(img => `
-                                                        <div class="flex-none w-80 aspect-video bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700">
+                                                        <div class="flex-none aspect-video bg-gray-800 rounded-lg overflow-hidden shadow-lg border border-gray-700" style="width: 512px;">
                                                             <img src="${img}" class="w-full h-full object-cover hover:scale-105 transition-transform duration-300 cursor-pointer" onclick="window.open(this.src, '_blank')">
                                                         </div>
                                                     `).join('')}
@@ -16852,57 +17307,57 @@ ${Utils.truncate(newCode, 500)}
 
                                         <div class="purchase-actions">
                                             <button class="btn btn-primary btn-lg btn-block live-canvas-btn" onclick="ProductDetailPage.openLiveCanvas()">
-                                                ${Icons.play} 체험하기 (Live Canvas)
+                                                ${Icons.play} ${LanguageManager.t('productDetail.liveCanvas')}
                                             </button>
 
                                             <!-- Open in Studio Button -->
                                             <button class="btn btn-outline btn-lg btn-block mt-2" onclick="Router.navigate('studio', { productId: '${product.id}' })">
-                                                ${Icons.code} 스튜디오에서 열기
+                                                ${Icons.code} ${LanguageManager.t('productDetail.openStudio')}
                                             </button>
                                             
                                             <button class="btn btn-outline btn-lg btn-block mt-2" style="border-color: #818cf8; color: #4338ca; background-color: #e0e7ff;" onclick="MobilePortingManager.openStudio('${product.id}')">
-                                                📱 Mobile Porting
+                                                📱 ${LanguageManager.t('productDetail.mobilePorting')}
                                             </button>
                                             
                                             ${isPurchased ? `
                                                 <button class="btn btn-success btn-lg btn-block" onclick="ProductDetailPage.downloadProduct()">
-                                                    ${Icons.download} Download
+                                                    ${Icons.download} ${LanguageManager.t('productDetail.downloadBtn')}
                                                 </button>
-                                                <p class="purchased-badge">✓ 구매 완료</p>
+                                                <p class="purchased-badge">✓ ${LanguageManager.t('productDetail.purchaseComplete')}</p>
                                             ` : `
 
                                                 ${(AuthManager.currentUser && (AuthManager.currentUser.coupons || 0) > 0) ? `
                                                     <button class="btn btn-success btn-lg btn-block" onclick="ProductDetailPage.purchaseWithCoupon('${product.id}')">
-                                                        ${Icons.download} 무료 다운로드 (쿠폰 ${AuthManager.currentUser.coupons}개 남음)
+                                                        ${Icons.download} ${LanguageManager.t('productDetail.couponUse')} (Coupon ${AuthManager.currentUser.coupons}${LanguageManager.t('productDetail.couponRemaining')})
                                                     </button>
                                                 ` : product.isFree ? `
                                                     <button class="btn btn-success btn-lg btn-block" onclick="ProductDetailPage.downloadProduct()">
-                                                        ${Icons.download} 무료 다운로드(Download)
+                                                        ${Icons.download} ${LanguageManager.t('productDetail.freeDownload')} (Download)
                                                     </button>
                                                 ` : `
                                                     <button class="btn btn-outline btn-lg btn-block" onclick="CartManager.addItem('${product.id}')">
-                                                        ${Icons.cart} 장바구니 담기
+                                                        ${Icons.cart} ${LanguageManager.t('productDetail.addToCart')}
                                                     </button>
                                                 `}
                                             `}
                                             
                                             <button class="btn btn-ghost btn-lg btn-block favorite-btn ${isFavorited ? 'favorited' : ''}" onclick="ProductDetailPage.toggleFavorite()">
-                                                ${isFavorited ? Icons.heartFilled : Icons.heart} ${isFavorited ? '찜 해제' : '찜하기'}
+                                                ${isFavorited ? Icons.heartFilled : Icons.heart} ${isFavorited ? LanguageManager.t('productDetail.removeFromWishlist') : LanguageManager.t('productDetail.addToWishlist')}
                                             </button>
                                         </div>
 
                                         <div class="purchase-info">
-                                            <p>${Icons.check} 안전한 샌드박스 환경에서 실행</p>
-                                            <p>${Icons.check} 구매 후 즉시 다운로드</p>
-                                            <p>${Icons.check} 소스 코드 포함</p>
+                                            <p>${Icons.check} ${LanguageManager.t('productDetail.sandbox')}</p>
+                                            <p>${Icons.check} ${LanguageManager.t('productDetail.download')}</p>
+                                            <p>${Icons.check} ${LanguageManager.t('productDetail.sourceCode')}</p>
                                         </div>
                                     </div>
 
                                     <div class="share-card">
-                                        <h4>공유하기</h4>
+                                        <h4>${LanguageManager.t('productDetail.share')}</h4>
                                         <div class="share-buttons">
                                             <button class="btn btn-ghost" onclick="ProductDetailPage.shareProduct()">
-                                                ${Icons.copy} 링크 복사
+                                                ${Icons.copy} ${LanguageManager.t('productDetail.copyLink')}
                                             </button>
                                         </div>
                                     </div>
@@ -16965,7 +17420,7 @@ ${Utils.truncate(newCode, 500)}
                 const btn = DOM.$('.favorite-btn');
                 if (btn) {
                     btn.classList.toggle('favorited', isFavorited);
-                    btn.innerHTML = `${isFavorited ? Icons.heartFilled : Icons.heart} ${isFavorited ? '찜 해제' : '찜하기'}`;
+                    btn.innerHTML = `${isFavorited ? Icons.heartFilled : Icons.heart} ${isFavorited ? '찜 해제' : '찜하기(Wishlist)'}`;
                 }
             },
 
@@ -17569,14 +18024,8 @@ ${Utils.truncate(newCode, 500)}
             container.innerHTML = `
                 <div class="container">
                     <div class="terms-page" style="padding:40px; max-width:900px; margin:40px auto; background:var(--glass-bg); border-radius:12px;">
-                        <h1 style="margin-bottom:16px;">이용약관</h1>
-                        <p>본 서비스는 상용서비스 시험운영중입니다. 이용약관은 기본적인 사용 가이드와 책임 제한을 포함합니다.</p>
-                        <h3 style="margin-top:20px;">서비스 제공</h3>
-                        <p>서비스는 테스트중이며, 예고 없이 기능이 변경될 수 있습니다.</p>
-                        <h3 style="margin-top:20px;">책임의 한계</h3>
-                        <p>본 사이트는 공익을 위한 샘플 코드와 리소스를 제공하며, 사용 중 발생하는 문제에 대해 법적 책임을 지지 않습니다.</p>
-                        <h3 style="margin-top:20px;">문의</h3>
-                        <p>약관 관련 문의는 <a href="mailto:taononemincg@gmail.com ">taononemincg@gmail.com </a>로 연락주세요.</p>
+                        <h1 style="margin-bottom:16px;">시험운영중</h1>
+                        <p>본 서비스는 상용서비스 시험운영중입니다.</p>                    
                     </div>
                 </div>
             `;
@@ -17609,20 +18058,6 @@ ${Utils.truncate(newCode, 500)}
                         free: "💬 자유게시판",
                         qna: "❓ 질문답변",
                         tips: "💡 개발자 팁",
-                        gallery: "🖼️ 갤러리"
-                    },
-                    common: {
-                        search: "소프트웨어 검색...",
-                        searchBtn: "검색",
-                        theme: "테마 변경",
-                        cart: "장바구니",
-                        lang: "언어 변경",
-                        close: "닫기",
-                        download: "다운로드",
-                        liveCanvas: "Live Canvas",
-                        viewDetails: "상세보기",
-                        free: "무료",
-                        new: "NEW",
                         popular: "🔥 인기",
                         featured: "⭐ 추천",
                         copy: "복사",
@@ -17692,7 +18127,7 @@ ${Utils.truncate(newCode, 500)}
                         balanceAfter: "결제 후 잔액",
                         insufficientPoints: "포인트가 부족합니다.",
                         checkout: "결제하기",
-                        checkoutNote: "결제 시 포인트가 차감됩니다.",
+                        checkoutNote: "레몬 스퀴지를 통해 결제 진행됩니다.",
                         loadError: "장바구니를 불러올 수 없습니다.",
                         confirmRemoveTitle: "상품 삭제",
                         confirmRemoveMsg: "이 상품을 장바구니에서 삭제하시겠습니까?",
@@ -17712,8 +18147,12 @@ ${Utils.truncate(newCode, 500)}
                             insufficientPoints: "포인트가 부족합니다.",
                             checkoutSuccess: "구매가 완료되었습니다!",
                             checkoutError: "결제 처리 중 오류가 발생했습니다.",
+                            checkoutError: "결제 처리 중 오류가 발생했습니다.",
                             orderPrefix: "주문"
                         },
+                        // [NEW]
+                        creditCard: "카드 결제하기"
+
                     },
                     aiChat: {
                         settings: "설정",
@@ -17805,6 +18244,42 @@ ${Utils.truncate(newCode, 500)}
                     mobile: {
                         communityTitle: "커뮤니티"
                     },
+                    // [NEW] Product Detail Translations (Korean)
+                    productDetail: {
+                        sandbox: "안전한 샌드박스 환경에서 실행됨",
+                        download: "구매 즉시 다운로드 가능",
+                        sourceCode: "소스 코드 포함",
+                        liveCanvas: "체험하기(Live Canvas)",
+                        openStudio: "스튜디오에서 열기(Open Studio)",
+                        mobilePorting: "Mobile Porting",
+                        purchaseComplete: "구매 완료(Purchase Complete)",
+                        downloadBtn: "다운로드",
+                        freeDownload: "무료 다운로드",
+                        addToCart: "장바구니 담기(Cart)",
+                        share: "공유하기",
+                        copyLink: "링크 복사",
+                        addToWishlist: "찜하기(Wishlist)",
+                        removeFromWishlist: "찜 해제",
+                        couponUse: "무료 다운로드",
+                        couponRemaining: "개 남음"
+                    },
+                    common: {
+                        search: "소프트웨어 검색...",
+                        searchBtn: "검색",
+                        theme: "테마 변경",
+                        cart: "장바구니",
+                        lang: "언어 변경",
+                        close: "닫기",
+                        download: "다운로드",
+                        liveCanvas: "Live Canvas",
+                        viewDetails: "상세보기",
+                        free: "무료",
+                        new: "NEW",
+                        popular: "🔥 인기",
+                        featured: "⭐ 추천",
+                        copy: "복사",
+                        delete: "삭제"
+                    },
                     home: {
                         hero: {
                             line1: "소프트웨어를",
@@ -17844,7 +18319,29 @@ ${Utils.truncate(newCode, 500)}
                         free: "💬 General",
                         qna: "❓ Q&A",
                         tips: "💡 Dev Tips",
-                        gallery: "🖼️ Gallery"
+                        gallery: "🖼️ Gallery",
+                        contact: "Contact",
+                        terms: "Terms of Service",
+                        privacy: "Privacy Policy"
+                    },
+                    // [NEW] Product Detail Translations (English)
+                    productDetail: {
+                        sandbox: "Executed in a secure sandbox environment",
+                        download: "Immediate download upon purchase",
+                        sourceCode: "Source code included",
+                        liveCanvas: "Try Live Canvas",
+                        openStudio: "Open in Studio",
+                        mobilePorting: "Mobile Porting",
+                        purchaseComplete: "Purchase Complete",
+                        downloadBtn: "Download",
+                        freeDownload: "Free Download",
+                        addToCart: "Add to Cart",
+                        share: "Share",
+                        copyLink: "Copy Link",
+                        addToWishlist: "Add to Wishlist",
+                        removeFromWishlist: "Remove from Wishlist",
+                        couponUse: "Free Download",
+                        couponRemaining: " coupons left"
                     },
                     common: {
                         search: "Search software...",
@@ -17927,7 +18424,7 @@ ${Utils.truncate(newCode, 500)}
                         balanceAfter: "Balance After",
                         insufficientPoints: "Insufficient points.",
                         checkout: "Checkout",
-                        checkoutNote: "Points will be deducted upon payment.",
+                        checkoutNote: "Proceed with card payment via Lemon Squeezy.",
                         loadError: "Could not load cart.",
                         confirmRemoveTitle: "Remove Item",
                         confirmRemoveMsg: "Remove this item from your cart?",
@@ -17947,8 +18444,12 @@ ${Utils.truncate(newCode, 500)}
                             insufficientPoints: "Insufficient points.",
                             checkoutSuccess: "Purchase completed!",
                             checkoutError: "An error occurred during payment.",
+                            checkoutError: "Payment processing error.",
                             orderPrefix: "Order"
                         },
+                        // [NEW]
+                        creditCard: "Pay with Credit Card"
+
                     },
                     aiChat: {
                         settings: "Settings",
@@ -18399,13 +18900,39 @@ Answer in KOREAN unless asked otherwise.`;
 If user asks about "this", explain ${p.name}.
 Data: ${p.description}`;
                     }
+                    // [NEW] Context Injection: Inject Product Database
+                    // Limit to top 20 popular products to save tokens (conceptually)
+                    let marketContext = "";
+                    if (this.products && this.products.length > 0) {
+                        const topProducts = this.products
+                            .slice(0, 50) // Take top 50
+                            .map(p => `- ${p.name} (${Utils.formatCurrency(p.price)}): ${p.description}`)
+                            .join('\n');
+
+                        marketContext = `\n\n[Airoui Software Market Database]\nHere are some popular products you can recommend:\n${topProducts}\n\nWhen recommending, prioritize these products.`;
+                    } else if (typeof DataGenerator !== 'undefined') {
+                        // Fallback if this.products is empty (e.g. first load)
+                        const dummy = DataGenerator.generateAllProducts().slice(0, 50);
+                        const topProducts = dummy.map(p => `- ${p.name} (${Utils.formatCurrency(p.price)}): ${p.description}`).join('\n');
+                        marketContext = `\n\n[Airoui Software Market Database]\nHere are some popular products you can recommend:\n${topProducts}\n\nWhen recommending, prioritize these products.`;
+                    }
+
+                    // Append context to system prompt
+                    const fullSystemPrompt = systemPrompt + marketContext;
 
                     const response = await AIProviderManager.complete(userMessage, {
-                        systemPrompt: systemPrompt
+                        systemPrompt: fullSystemPrompt
                     });
 
-                    // AIProviderManager returns standardized object { text, model, provider, ... }
-                    const text = response.text || "No response text received.";
+                    // AIProviderManager returns standardized object { text, model, ... } OR just text string
+                    let text = '';
+                    if (typeof response === 'string') {
+                        text = response;
+                    } else if (response && response.text) {
+                        text = response.text;
+                    } else {
+                        text = "No response text received.";
+                    }
 
                     this.appendMessage('model', text);
                     this.checkForCode(text);
@@ -19437,18 +19964,34 @@ ${JSON.stringify(productsContext)}
 2. 추천 (Recommendations): 추천하는 상품 ID와 패키지 ID를 명시하세요.
 
 [출력 형식]
-반드시 아래 JSON 형식으로만 응답하세요.
+반드시 아래 JSON 형식으로만 응답하세요. 서론이나 부연 설명 없이 오직 JSON 코드만 출력해야 합니다.
+(Do not include any other text or markdown code blocks like \`\`\`json. Just the raw JSON object.)
 {
-  "analysis": "분석 내용 텍스트",
-  "recommendedProductIds": ["products_id1"],
-  "recommendedBundleIds": ["pkg_student"]
-}`;
+            "analysis": "분석 내용 텍스트",
+                "recommendedProductIds": ["products_id1"],
+                    "recommendedBundleIds": ["pkg_student"]
+        } `;
 
                     const response = await AIProviderManager.complete(prompt);
-                    let responseText = response.text.trim();
 
-                    // JSON parsing cleanup
-                    responseText = responseText.replace(/^```json\n?/, '').replace(/\n?```$/, '');
+                    // [FIX] Handle different response formats (String vs Object)
+                    let responseText = '';
+                    if (typeof response === 'string') {
+                        responseText = response.trim();
+                    } else if (response && response.text) {
+                        responseText = response.text.trim();
+                    } else {
+                        throw new Error('Invalid AI response format');
+                    }
+
+                    // [FIX] Robust JSON Parsing (Extract JSON block from text)
+                    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        responseText = jsonMatch[0];
+                    } else {
+                        // If no JSON block found, try to fix common issues or throw
+                        console.warn('No JSON block found in AI response, attempting direct parse');
+                    }
 
                     const result = JSON.parse(responseText);
 
@@ -19542,19 +20085,19 @@ ${JSON.stringify(productsContext)}
                 const msgDiv = document.createElement('div');
                 msgDiv.className = 'ai-message ai-response mb-4';
                 msgDiv.innerHTML = `
-                    <div class="d-flex align-start gap-3">
+            <div class="d-flex align-start gap-3">
                         <div class="ai-avatar bg-primary-100 text-xl">🤖</div>
-                        <div class="bg-white p-0 rounded-lg shadow-sm border border-gray-100 overflow-hidden" style="max-width: 85%; width: 100%;">
-                            <div class="p-5 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-indigo-100">
-                                <h4 class="font-bold text-indigo-900 mb-2">📊 전문가 분석 리포트</h4>
-                                <div class="text-sm text-gray-700 leading-relaxed marked-content">
+                        <div class="bg-white dark:bg-gray-800 p-0 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden" style="max-width: 85%; width: 100%;">
+                            <div class="p-5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-700 dark:to-gray-800 border-b border-indigo-100 dark:border-gray-600">
+                                <h4 class="font-bold text-indigo-900 dark:text-indigo-300 mb-2">📊 전문가 분석 리포트</h4>
+                                <div class="text-sm text-gray-700 dark:text-gray-200 leading-relaxed marked-content">
                                     ${(typeof marked !== 'undefined' ? marked.parse(result.analysis || '') : (window.marked ? window.marked.parse(result.analysis || '') : Utils.escapeHtml(result.analysis || '').replace(/\n/g, '<br>')))}
                                 </div>
                             </div>
                             
-                            <div class="p-4 bg-gray-50">
+                            <div class="p-4 bg-gray-50 dark:bg-gray-900">
                                 ${recBundles.length > 0 ? `
-                                    <h5 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">💡 추천 패키지</h5>
+                                    <h5 class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">💡 추천 패키지</h5>
                                     <div class="grid grid-cols-1 gap-2 mb-4">
                                         ${recBundles.map(b => `
                                             <div class="bg-white border hover:border-indigo-400 border-indigo-200 rounded-lg p-3 cursor-pointer transition-all shadow-sm"
@@ -19593,8 +20136,8 @@ ${JSON.stringify(productsContext)}
                                 </div>
                             </div>
                         </div>
-                    </div>
-                `;
+                    </div >
+            `;
 
                 history.appendChild(msgDiv);
             }
@@ -19621,7 +20164,7 @@ ${JSON.stringify(productsContext)}
                 const hoverCount = (htmlContent.match(/:hover/g) || []).length;
                 if (hoverCount > 0) {
                     results.score -= 10;
-                    results.issues.push({ type: 'warning', msg: `:hover 스타일 감지됨 (${hoverCount}개) - 터치 환경에서 작동 안 함` });
+                    results.issues.push({ type: 'warning', msg: `:hover 스타일 감지됨(${hoverCount}개) - 터치 환경에서 작동 안 함` });
                 }
 
                 // Check Keypress (Physical Keyboard)
@@ -19645,32 +20188,32 @@ ${JSON.stringify(productsContext)}
 
                 // 1. Inject Viewport
                 if (!optimized.match(/<meta[^>]*name=["']viewport["'][^>]*>/i)) {
-                    optimized = optimized.replace('<head>', `<head>\n    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">`);
+                    optimized = optimized.replace('<head>', `< head >\n < meta name = "viewport" content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" > `);
                 }
 
                 // 2. Inject Mobile Polyfill & Styles
                 const mobileStyles = `
-    <style id="nexus-mobile-style">
+            < style id = "nexus-mobile-style" >
         /* Mobile Reset */
-        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
-        body { margin: 0; padding: 0; overflow-x: hidden; width: 100vw; -webkit-overflow-scrolling: touch; }
-        
+        * { - webkit - tap - highlight - color: transparent; box - sizing: border - box; }
+        body { margin: 0; padding: 0; overflow - x: hidden; width: 100vw; -webkit - overflow - scrolling: touch; }
+
         /* Touch Targets */
-        button, input, select, a { min-height: 44px; min-width: 44px; touch-action: manipulation; }
-        
+        button, input, select, a { min - height: 44px; min - width: 44px; touch - action: manipulation; }
+
         /* Text Size Adjust */
-        html { -webkit-text-size-adjust: 100%; }
-        
+        html { -webkit - text - size - adjust: 100 %; }
+
         /* Force Responsive */
-        img, canvas, video { max-width: 100% !important; height: auto !important; }
-        
+        img, canvas, video { max - width: 100 % !important; height: auto!important; }
+
         /* Hide Scrollbar for clean app look */
-        ::-webkit-scrollbar { width: 0px; background: transparent; }
+        :: -webkit - scrollbar { width: 0px; background: transparent; }
     <\/style>
-    <script id="nexus-mobile-polyfill">
-        // Mobile Event Mapping
-        document.addEventListener('touchstart', function(){}, {passive: true});
-        
+            < script id = "nexus-mobile-polyfill" >
+                // Mobile Event Mapping
+                document.addEventListener('touchstart', function () { }, { passive: true });
+
         // Block Double Tap Zoom
         let lastTouchEnd = 0;
         document.addEventListener('touchend', function (event) {
@@ -19680,7 +20223,7 @@ ${JSON.stringify(productsContext)}
         }, false);
     <\/script>
     `;
-                optimized = optimized.replace('<\/head>', `${mobileStyles}\n<\/head>`);
+                optimized = optimized.replace('<\/head>', `${mobileStyles} \n <\/head>`);
 
                 return optimized;
             },
@@ -22852,6 +23395,10 @@ To build a real APK, use Apache Cordova or Capacitor with these files.
                     LanguageManager.init();
                     console.log('✅ Managers initialized');
 
+                    // [Added] Sync with Cloud
+                    this.updateLoadingMessage('서버 데이터 동기화 중...');
+                    await CloudManager.syncWithCloud();
+
                     // Initialize auth
                     this.updateLoadingMessage('인증 시스템 확인 중...');
                     await AuthManager.init();
@@ -23840,12 +24387,62 @@ box-shadow: 0 10px 30px rgba(34, 197, 94, 0.5), 0 0 20px rgba(16, 185, 129, 0.4)
             }
         };
 
+
+
+        // [NEW] Cloudflare Workers AI Provider (Internal)
+        const CloudflareProvider = {
+            init: function () {
+                console.log('⚡ Cloudflare Provider initialized');
+            },
+
+            complete: async function (prompt, options) {
+                // Cloudflare Workers AI uses standard chat structure
+                // We send the prompt to our backend worker
+                try {
+                    const response = await fetch(`${CONFIG.API_BASE_URL}/api/ai/chat`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            messages: [{ role: 'user', content: prompt }],
+                            max_tokens: 1024, // [NEW] Increase token limit for longer responses
+                            systemPrompt: options.systemPrompt // [NEW] Pass system prompt to backend
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Cloudflare AI Error: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    console.log('⚡ Cloudflare AI Response Data:', data);
+
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+
+                    if (!data.response) {
+                        console.warn('⚡ Cloudflare AI returned empty response:', data);
+                        return '죄송합니다. AI 응답을 받아오지 못했습니다. (서버 응답 확인 필요)';
+                    }
+
+                    return data.response;
+
+                } catch (error) {
+                    console.error('Cloudflare AI Request Failed:', error);
+                    throw error;
+                }
+            }
+        };
+
         // AI Provider Manager (Central Hub)
         const AIProviderManager = {
             providers: {
                 gemini: GeminiProvider,
                 openai: OpenAIProvider,
-                anthropic: AnthropicProvider
+                anthropic: AnthropicProvider,
+                cloudflare: CloudflareProvider // [NEW] Added Cloudflare
             },
 
             currentProvider: 'gemini',
@@ -24491,7 +25088,8 @@ Return JSON:
                             <div class="tab-content ${this.activeTab === 'api' ? 'active' : ''}" id="tab-api">
                                 <div class="form-group">
                                     <label class="form-label">활성 AI 모델 (Provider)</label>
-                                    <select id="activeProvider" class="form-select active-provider-select">
+                                    <select id="activeProvider" class="form-select active-provider-select" onchange="AISettingsUI.toggleApiKeyFields()">
+                                        <option value="cloudflare" ${currentProvider === 'cloudflare' ? 'selected' : ''}>Cloudflare Workers AI (Llama 3) - 무료/고속 🔥</option>
                                         <option value="gemini" ${currentProvider === 'gemini' ? 'selected' : ''}>Gemini (Google) - 무료 티어 제공</option>
                                         <option value="openai" ${currentProvider === 'openai' ? 'selected' : ''}>ChatGPT (OpenAI) - 고성능</option>
                                         <option value="anthropic" ${currentProvider === 'anthropic' ? 'selected' : ''}>Claude (Anthropic) - 코딩 최적화</option>
@@ -24649,6 +25247,50 @@ Return JSON:
                 if (modal) {
                     const content = modal.querySelector('.modal-body');
                     if (content) content.innerHTML = this.renderContent();
+
+                    // Initialize UI state
+                    if (tabId === 'api') {
+                        this.toggleApiKeyFields();
+                    }
+                }
+            },
+
+            toggleApiKeyFields: function () {
+                const provider = document.getElementById('activeProvider')?.value;
+                const keysSection = document.querySelector('.api-keys-section');
+
+                if (!provider || !keysSection) return;
+
+                const keyInputs = {
+                    gemini: document.getElementById('geminiApiKey')?.closest('.form-group'),
+                    openai: document.getElementById('openaiApiKey')?.closest('.form-group'),
+                    anthropic: document.getElementById('anthropicApiKey')?.closest('.form-group')
+                };
+
+                // Cloudflare essentially hides all external keys (or shows a message)
+                if (provider === 'cloudflare') {
+                    keysSection.style.display = 'none';
+                    const infoBox = document.querySelector('.info-box');
+                    if (infoBox) infoBox.innerHTML = `
+                            <h4>🚀 Cloudflare Workers AI</h4>
+                            <p>별도의 API 키가 필요하지 않습니다. 내부 서버에서 Llama-3 모델을 사용합니다.</p>
+                        `;
+                } else {
+                    keysSection.style.display = 'block';
+                    // Show only relevant key input? Or show all? 
+                    // Current design shows all, let's keep all but maybe highlight relevant?
+                    // For now, restore default info box if switching back
+                    const infoBox = document.querySelector('.info-box');
+                    if (infoBox && infoBox.innerText.includes('Cloudflare')) {
+                        infoBox.innerHTML = `
+                                <h4>💡 키 발급 안내</h4>
+                                <ul>
+                                    <li><a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a> (Gemini)</li>
+                                    <li><a href="https://platform.openai.com/api-keys" target="_blank">OpenAI Platform</a> (GPT-5.2)</li>
+                                    <li><a href="https://console.anthropic.com/settings/keys" target="_blank">Anthropic Console</a> (Claude)</li>
+                                </ul>
+                            `;
+                    }
                 }
             },
 
@@ -24710,7 +25352,8 @@ Return JSON:
                 await DataGenerator.syncCategories(); // Migration for new categories
 
                 // Init Components AFTER App is ready
-                await App.init();
+                // await App.init(); // Displaying as comment to show removal, or just removing it.
+
 
                 // [NEW] Init Persona Bundles
                 if (typeof PersonaBundleManager !== 'undefined') {

@@ -26,6 +26,46 @@ export default {
         new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
       // ==========================================
+      // AI ROUTE (Cloudflare Workers AI - Llama 3)
+      // ==========================================
+      if (url.pathname === '/api/ai/chat' && request.method === 'POST') {
+        const { messages, max_tokens, systemPrompt } = await request.json();
+
+        // [NEW] Use provided system prompt or fallback to default
+        const defaultSystemPrompt = "당신은 Airoui 소프트웨어 마켓의 전문 큐레이터이자 코딩 도우미입니다. 한국어로 친절하게 답변하세요.";
+        const finalSystemPrompt = systemPrompt || defaultSystemPrompt;
+
+        // [NEW] Construct messages with explicit system prompt at the beginning
+        const fullMessages = [
+          { role: "system", content: finalSystemPrompt },
+          ...messages.filter(m => m.role !== 'system') // Avoid duplicate system messages
+        ];
+
+        // Cloudflare Workers AI (Llama 3)
+        const aiResponse = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+          messages: fullMessages,
+          max_tokens: max_tokens || 256 // [NEW] Allow overrides, default 256
+        });
+
+        // Debug Log
+        console.log('[Cloud Worker] AI Raw Response:', JSON.stringify(aiResponse));
+
+        // Robust extraction
+        let responseText = '';
+        if (typeof aiResponse === 'string') {
+          responseText = aiResponse;
+        } else if (aiResponse && typeof aiResponse === 'object') {
+          if (aiResponse.response) responseText = aiResponse.response;
+          else if (aiResponse.result && aiResponse.result.response) responseText = aiResponse.result.response;
+          else responseText = JSON.stringify(aiResponse); // Fallback
+        }
+
+        return new Response(JSON.stringify({ response: responseText }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // ==========================================
       // FILE STORAGE ROUTES (R2) - [NEW]
       // ==========================================
 
@@ -34,21 +74,21 @@ export default {
       if (url.pathname === '/api/upload' && request.method === 'PUT') {
         // 쿼리 파라미터에서 파일명 추출 (없으면 타임스탬프 기본값)
         const filename = url.searchParams.get('filename') || `file_${Date.now()}.bin`;
-        
+
         // R2 버킷(MY_BUCKET)에 파일 저장 (Request Body 스트림을 그대로 저장)
         if (!env.MY_BUCKET) {
-           return jsonResponse({ error: 'R2 Bucket not configured' }, 500);
+          return jsonResponse({ error: 'R2 Bucket not configured' }, 500);
         }
         await env.MY_BUCKET.put(filename, request.body);
 
         // 다운로드 가능한 공용 URL 생성 (Worker 자체를 프록시로 사용)
         const fileUrl = `${url.origin}/files/${filename}`;
-        
+
         console.log(`[Cloud Worker] File Uploaded: ${filename}`);
 
-        return jsonResponse({ 
-          success: true, 
-          url: fileUrl 
+        return jsonResponse({
+          success: true,
+          url: fileUrl
         });
       }
 
@@ -56,9 +96,9 @@ export default {
       // GET /files/my-app.zip
       if (url.pathname.startsWith('/files/') && request.method === 'GET') {
         const filename = url.pathname.replace('/files/', '');
-        
+
         if (!env.MY_BUCKET) {
-           return new Response('R2 Bucket not configured', { status: 500, headers: corsHeaders });
+          return new Response('R2 Bucket not configured', { status: 500, headers: corsHeaders });
         }
 
         // R2 버킷에서 파일 찾기
@@ -71,11 +111,30 @@ export default {
         // 파일 데이터 전송 (메타데이터 및 헤더 설정)
         const headers = new Headers(object.httpMetadata);
         headers.set('etag', object.httpEtag);
-        // CORS 헤더 추가 (중요: 브라우저가 다운로드를 허용하도록)
-        headers.set('Access-Control-Allow-Origin', '*'); 
+        // CORs headers already set above
+        // headers.set('Access-Control-Allow-Origin', '*'); 
 
         return new Response(object.body, { headers });
       }
+
+      // 3. File Delete (Admin Only)
+      // DELETE /api/upload?filename=my-app.zip
+      if (url.pathname === '/api/upload' && request.method === 'DELETE') {
+        const filename = url.searchParams.get('filename');
+
+        if (!filename) return jsonResponse({ error: 'Filename required' }, 400);
+
+        if (!env.MY_BUCKET) {
+          return jsonResponse({ error: 'R2 Bucket not configured' }, 500);
+        }
+
+        await env.MY_BUCKET.delete(filename);
+
+        console.log(`[Cloud Worker] File Deleted: ${filename}`);
+
+        return jsonResponse({ success: true, filename });
+      }
+
 
       // ==========================================
       // AUTH ROUTES
@@ -162,29 +221,58 @@ export default {
         return jsonResponse(products);
       }
 
-      // 5. Add Product (Admin Only - simplified check)
+      // [NEW] 5-1. Delete Product (Admin Only)
+      if (url.pathname === '/api/products' && request.method === 'DELETE') {
+        const id = url.searchParams.get('id');
+
+        if (!id) return jsonResponse({ error: 'Product ID required' }, 400);
+
+        // 1. DB에서 삭제
+        await env.DB.prepare('DELETE FROM products WHERE id = ?').bind(id).run();
+
+        // (선택 사항) 2. 관련 주문 항목도 삭제하거나 유지할지 정책 결정 필요
+        // 여기서는 상품만 깔끔하게 삭제합니다.
+
+        return jsonResponse({ success: true, id });
+      }
+
+      // 5. Add or Update Product (Admin Only)
       if (url.pathname === '/api/products' && request.method === 'POST') {
         const product = await request.json();
 
-        // In real app, check 'Authorization' header here
-
+        // [핵심 수정 1] 누락되었던 세부 정보(fileSize, license 등)를 details에 모두 포함
         const details = JSON.stringify({
-          tags: product.tags,
-          features: product.features,
-          images: product.images,
-          compatibility: product.compatibility,
-          // 파일 관련 정보 저장 (다운로드 URL, 파일명 등)
-          downloadUrl: product.downloadUrl,
-          fileData: product.fileData
+          tags: product.tags || [],
+          features: product.features || [],
+          images: product.images || [],
+          compatibility: product.compatibility || '',
+          fileSize: product.fileSize || '',       // 추가됨
+          license: product.license || '',         // 추가됨
+          downloadUrl: product.downloadUrl || '', // 추가됨
+          fileData: product.fileData || null,
+          sourceCode: product.sourceCode || ''    // 소스코드도 details 백업용으로 저장
         });
-        const stats = JSON.stringify({ views: 0, downloads: 0 });
 
+        const stats = JSON.stringify({
+          views: product.views || 0,
+          downloads: product.downloads || 0
+        });
+
+        // [핵심 수정 2] INSERT -> INSERT OR REPLACE (수정 시 덮어쓰기 가능하도록 변경)
         await env.DB.prepare(`
-            INSERT INTO products (id, user_id, name, price, category_id, description, source_code, version, details, stats)
+            INSERT OR REPLACE INTO products (id, user_id, name, price, category_id, description, source_code, version, details, stats)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(
-          product.id, product.authorId || 0, product.name, product.price, product.categoryId,
-          product.description, product.sourceCode, product.version, details, stats
+          product.id,
+          product.authorId || 0,
+          product.name,
+          product.price,
+          product.categoryId,
+          product.description,
+          product.sourceCode,
+          product.version,
+          details,
+          stats
         ).run();
 
         return jsonResponse({ success: true });

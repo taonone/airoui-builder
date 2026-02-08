@@ -22,3 +22,8 @@ bucket_name = "airoui-files"
 # [[kv_namespaces]]
 # binding = "KV"
 # id = "REPLACE_WITH_YOUR_KV_ID"
+
+# AI Binding
+[ai]
+binding = "AI"
+
