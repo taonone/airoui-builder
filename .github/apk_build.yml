@@ -65,17 +65,20 @@ jobs:
           # Build Release APK
           ./gradlew assembleRelease --no-daemon
 
-      - name: Upload APK to Storage
-        uses: rclone/rclone-action@v1
-        with:
-          args: copy android/app/build/outputs/apk/release/app-release-unsigned.apk my-r2:builds/${{ github.event.client_payload.app_id }}.apk
+      - name: Upload APK to R2
         env:
-          RCLONE_CONFIG_MY_R2_TYPE: s3
-          RCLONE_CONFIG_MY_R2_PROVIDER: Cloudflare
-          RCLONE_CONFIG_MY_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          RCLONE_CONFIG_MY_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          RCLONE_CONFIG_MY_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          APK_PATH=$(find app/build/outputs/apk -name "*.apk" -type f | head -1)
+          echo "📤 Uploading $APK_PATH to R2..."
+          aws s3 cp "$APK_PATH" s3://airoui-files/builds/${{ github.event.client_payload.app_id }}.apk --endpoint-url ${{ secrets.R2_ENDPOINT }}
+
+
+          
           
       # Optional: Notify Webhook on Completion
       # - name: Notify Airoui
       #   run: curl -X POST https://api.airoui.com/build-complete -d '{ "appId": "${{ ... }}" }'
+
