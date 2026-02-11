@@ -1,0 +1,81 @@
+name: Super Efficient APK Builder
+on:
+  repository_dispatch:
+    types: [build_apk]
+
+# Concurrency Control: Cancel previous build if new one comes for same App ID
+concurrency:
+  group: build-${{ github.event.client_payload.app_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build APK for ${{ github.event.client_payload.app_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15  # Safety cutoff
+
+    steps:
+      - name: Checkout Builder Template
+        uses: actions/checkout@v3
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      # Caching for Speed
+      - name: Cache Gradle packages
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Download User Source
+        run: |
+          echo "Downloading source from: ${{ github.event.client_payload.source_url }}"
+          curl -L "${{ github.event.client_payload.source_url }}" -o user-source.zip
+          
+          # Unzip into Capacitor web dir (e.g., 'src' or 'www' depending on template)
+          # Assuming template is set up to build content from 'src'
+          unzip -o user-source.zip -d src/
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Configure App
+        run: |
+          # Use sed to replace App Name in config
+          # WARNING: This depends on your capacitor.config.json structure
+          sed -i 's/"appName": ".*"/"appName": "${{ github.event.client_payload.app_name }}"/' capacitor.config.json
+
+      - name: Build Android Project
+        run: |
+          npx cap sync android
+          cd android
+          # Build Release APK
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Upload APK to Storage
+        uses: rclone/rclone-action@v1
+        with:
+          args: copy android/app/build/outputs/apk/release/app-release-unsigned.apk my-r2:builds/${{ github.event.client_payload.app_id }}.apk
+        env:
+          RCLONE_CONFIG_MY_R2_TYPE: s3
+          RCLONE_CONFIG_MY_R2_PROVIDER: Cloudflare
+          RCLONE_CONFIG_MY_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_MY_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_MY_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          
+      # Optional: Notify Webhook on Completion
+      # - name: Notify Airoui
+      # run: curl -X POST https://api.airoui.com/build-complete -d '{ "appId": "${{ ... }}" }'
