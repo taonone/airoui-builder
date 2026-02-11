@@ -85,23 +85,19 @@ jobs:
           echo "✅ APK built: $APK_PATH"
           echo "📦 APK size: $(du -h "$APK_PATH" | cut -f1)"
 
+
       - name: Upload APK to R2
-        uses: rclone/rclone-action@v1
-        with:
-          args: >
-            copyto
-            $(find app/build/outputs/apk -name "*.apk" -type f | head -1)
-            my-r2:airoui-files/builds/${{ github.event.client_payload.app_id }}.apk
         env:
-          RCLONE_CONFIG_MY_R2_TYPE: s3
-          RCLONE_CONFIG_MY_R2_PROVIDER: Cloudflare
-          RCLONE_CONFIG_MY_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          RCLONE_CONFIG_MY_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          RCLONE_CONFIG_MY_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          RCLONE_CONFIG_MY_R2_ACL: private
-          RCLONE_CONFIG_MY_R2_NO_CHECK_BUCKET: true
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          APK_PATH=$(find app/build/outputs/apk -name "*.apk" -type f | head -1)
+          echo "📤 Uploading $APK_PATH to R2..."
+          aws s3 cp "$APK_PATH" s3://airoui-files/builds/${{ github.event.client_payload.app_id }}.apk --endpoint-url ${{ secrets.R2_ENDPOINT }}
 
       - name: Verify Upload
         run: |
           echo "✅ APK uploaded to R2: builds/${{ github.event.client_payload.app_id }}.apk"
           echo "🎉 Build complete for: ${{ github.event.client_payload.app_name }}"
+
