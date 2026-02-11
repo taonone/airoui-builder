@@ -67,11 +67,8 @@ jobs:
 
       - name: Setup Gradle Wrapper
         run: |
-          # Ensure gradlew exists and is executable
-          if [ ! -f gradlew ]; then
-            echo "⚙️ gradlew not found, generating..."
-            gradle wrapper --gradle-version 8.4
-          fi
+          echo "⚙️ Ensuring Gradle wrapper and jar exist..."
+          gradle wrapper --gradle-version 8.4
           chmod +x gradlew
           echo "✅ Gradle wrapper ready"
 
@@ -100,4 +97,5 @@ jobs:
         run: |
           echo "✅ APK uploaded to R2: builds/${{ github.event.client_payload.app_id }}.apk"
           echo "🎉 Build complete for: ${{ github.event.client_payload.app_name }}"
+
 
