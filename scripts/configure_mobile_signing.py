@@ -19,7 +19,7 @@ import urllib.request
 def lock_directory(directory):
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     if os.name == "nt":
-        identity = subprocess.run(["whoami", "/user", "/fo", "csv", "/nh"], check=True, capture_output=True, text=True).stdout
+        identity = subprocess.run(["whoami", "/user", "/fo", "csv", "/nh"], check=True, capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
         sid = re.search(r"S-1-\d+(?:-\d+)+", identity)
         if not sid:
             raise RuntimeError("Cannot resolve current Windows user SID")
@@ -40,7 +40,7 @@ def create_key(profile, directory):
     password = secrets.token_urlsafe(36)
     env = dict(os.environ, AIROUI_CREATE_KEY_PASSWORD=password)
     subprocess.run([tool, "-genkeypair", "-storetype", "PKCS12", "-keystore", str(keystore), "-alias", "airoui-upload", "-keyalg", "RSA", "-keysize", "3072", "-validity", "10000", "-dname", "CN=Airoui Android Upload Key", "-storepass:env", "AIROUI_CREATE_KEY_PASSWORD", "-keypass:env", "AIROUI_CREATE_KEY_PASSWORD"], env=env, check=True, capture_output=True)
-    cert = subprocess.run([tool, "-J-Duser.language=en", "-J-Duser.country=US", "-list", "-v", "-keystore", str(keystore), "-alias", "airoui-upload", "-storepass:env", "AIROUI_CREATE_KEY_PASSWORD"], env=env, check=True, capture_output=True, text=True).stdout
+    cert = subprocess.run([tool, "-J-Duser.language=en", "-J-Duser.country=US", "-list", "-v", "-keystore", str(keystore), "-alias", "airoui-upload", "-storepass:env", "AIROUI_CREATE_KEY_PASSWORD"], env=env, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     match = re.search(r"SHA256:\s*([A-Fa-f0-9:]{95})", cert)
     if not match:
         raise RuntimeError("Cannot verify the newly generated certificate")
@@ -60,7 +60,7 @@ def register_secret(repo, directory):
     from nacl.public import PublicKey, SealedBox
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
         raise RuntimeError("Invalid GitHub repository")
-    result = subprocess.run(["git", "-c", "credential.interactive=never", "credential", "fill"], input="protocol=https\nhost=github.com\n\n", capture_output=True, text=True, check=True)
+    result = subprocess.run(["git", "-c", "credential.interactive=never", "credential", "fill"], input="protocol=https\nhost=github.com\n\n", capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
     fields = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
     token = fields.get("password")
     if not token:

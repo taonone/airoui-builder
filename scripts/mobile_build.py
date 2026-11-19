@@ -257,11 +257,11 @@ def build_project(root: Path, output: Path, expected=None):
     if extension == "apk":
         sdk = Path(env.get("ANDROID_HOME") or env.get("ANDROID_SDK_ROOT", ""))
         verifier = sdk / "build-tools/36.0.0" / ("apksigner.bat" if os.name == "nt" else "apksigner")
-        verified = subprocess.run([str(verifier), "verify", "--verbose", "--print-certs", str(artifact)], env=env, check=True, capture_output=True, text=True)
+        verified = subprocess.run([str(verifier), "verify", "--verbose", "--print-certs", str(artifact)], env=env, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
         fingerprint = certificate_fingerprint(verified.stdout)
     else:
         subprocess.run(["jarsigner", "-verify", str(artifact)], env=env, check=True, capture_output=True)
-        cert = subprocess.run(["keytool", "-printcert", "-jarfile", str(artifact)], env=env, check=True, capture_output=True, text=True)
+        cert = subprocess.run(["keytool", "-printcert", "-jarfile", str(artifact)], env=env, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
         fingerprint = certificate_fingerprint(cert.stdout)
         with zipfile.ZipFile(artifact) as bundle:
             if not {"BundleConfig.pb", "base/manifest/AndroidManifest.xml"}.issubset(bundle.namelist()):

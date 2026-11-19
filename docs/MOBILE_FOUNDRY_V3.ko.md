@@ -16,6 +16,8 @@ PWA 오프라인 기능 전체 완성, 외부 자산 자동 수집, Play Console
 
 ## 실제 빌더 저장소에서 바꿀 파일
 
+빌더 변경은 [PR #1](https://github.com/taonone/airoui-builder/pull/1)의 별도 브랜치에 준비했습니다. 해당 브랜치의 GitHub `Builder security tests`도 통과했습니다. 운영 main 병합과 사이트 배포는 별도입니다.
+
 대상 저장소는 `taonone/airoui-builder`입니다. 실행되는 파일은 **`.github/workflows/build-apk.yml`**입니다. 사용자가 참고로 제공한 **`.github/apk_build.yml`은 workflows 폴더 밖에 있어 자동 실행 workflow가 아닙니다.** 그 파일의 Capacitor/src 압축 해제 구조를 현재 Native Android 프로젝트 ZIP에 적용하면 안 됩니다.
 
 - `.github/workflows/build-apk.yml`: 이 작업 폴더의 `builder-integration/build-apk.yml`과 같은 내용
@@ -87,7 +89,7 @@ python scripts/configure_mobile_signing.py --profile com.airoui.my_app --registe
 
 전체 JavaScript/브라우저/Workers 테스트 103개와 Python 테스트 10개가 통과했습니다. 실제 workerd에서 D1 버전 예약, R2 암호화 저장, 만료 권한을 통한 복호화 전달도 확인했습니다. 두 workflow는 actionlint 검사를 통과했습니다.
 
-실제 생성한 프로젝트를 Android SDK 36 / JDK 17 환경에서 컴파일했습니다. 테스트 APK와 임시 검증 키로 서명한 AAB 모두 빌드에 성공했고 apksigner/jarsigner 검증을 통과했습니다. 특수문자·한글 이름도 사용했습니다. 운영 서명키를 사용한 빌드, 실제 휴대폰 설치, Google Play 심사는 이 검증에 포함하지 않습니다.
+실제 생성한 프로젝트를 Android SDK 36 / JDK 17 환경에서 컴파일했습니다. 테스트 APK, 서명된 출시 APK, AAB 모두 빌드에 성공했고 apksigner/jarsigner 검증을 통과했습니다. 출시 APK와 AAB는 동일한 지속 검증 프로필의 인증서로 확인했으며, APK/AAB 내부 HTML이 제출한 원본과 같은지도 바이트 해시로 대조했습니다. 특수문자·한글 이름도 사용했습니다. 운영 서명키를 사용한 빌드, 실제 휴대폰 설치, Google Play 심사는 이 검증에 포함하지 않습니다.
 
 ```powershell
 node --test tests/admin-member-delete.test.mjs tests/auth-cache.test.mjs tests/auth-security.test.mjs tests/signup-ui.test.mjs tests/cloud-build-ui.test.mjs tests/cloud-build-runtime.test.mjs tests/mobile-foundry.test.mjs
