@@ -22,6 +22,7 @@ PWA 오프라인 기능 전체 완성, 외부 자산 자동 수집, Play Console
 
 - `.github/workflows/build-apk.yml`: 이 작업 폴더의 `builder-integration/build-apk.yml`과 같은 내용
 - `scripts/mobile_build.py`: 이 작업 폴더의 동일 파일
+- `scripts/setup_android_sdk.py`: PATH와 무관하게 sdkmanager 위치를 찾고 SDK 36·Build Tools를 설치·검증합니다.
 - `tests/test_mobile_build.py`: 빌더 보안 회귀 테스트
 
 기존 `repository_dispatch: build_apk`, 표준 `ubuntu-latest`, Java 17, 15분 제한, R2 Secret 3개와 `builds/{빌드ID}` 결과 경로를 유지합니다. Node/Capacitor는 이 Native Android ZIP 빌드에 필요하지 않습니다. 외부 입력은 셸에 삽입하지 않고 GitHub event JSON을 Python으로 읽습니다. 다운로드 권한 URL과 Secret은 로그에 출력하지 않습니다.
@@ -86,6 +87,8 @@ python scripts/configure_mobile_signing.py --profile com.airoui.my_app --registe
 - 격리 화면 검사는 sandbox/CSP로 외부 리소스·API·폼·팝업을 제한합니다. 자체 프레임 이동 등 모든 네트워크 동작이나 무한 루프를 차단하는 악성코드 분석 환경은 아니므로 본인이 신뢰하는 앱 소스를 검사하는 용도입니다. 외부 라이브러리·API가 필요한 앱은 차단 개수를 보고 별도로 검증해야 합니다. 실기기 GPU·배터리·터치 성능을 인증하지 않습니다. 비밀키 검사도 알려진 의심 패턴 검사이며 모든 형태의 비밀을 찾아낸다고 보장하지 않습니다.
 
 ## 검증
+
+`sdkmanager: command not found`(종료 코드 127) 보완: workflow의 SDK 설치 단계는 이제 `scripts/setup_android_sdk.py`를 실행합니다. 버전 번호 폴더 또는 latest 폴더의 실제 실행 파일을 사용하고 ANDROID_HOME·ANDROID_SDK_ROOT·GITHUB_PATH를 후속 단계에 전달합니다. SDK 실패도 서명 오류와 구분해 기록합니다. SDK 도구의 Java 설정은 빌드용 Java 17과 분리합니다.
 
 전체 JavaScript/브라우저/Workers 테스트 103개와 Python 테스트 10개가 통과했습니다. 실제 workerd에서 D1 버전 예약, R2 암호화 저장, 만료 권한을 통한 복호화 전달도 확인했습니다. 두 workflow는 actionlint 검사를 통과했습니다.
 
