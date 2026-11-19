@@ -28,8 +28,7 @@ jobs:
           java-version: '17'
 
       - name: Install Android SDK 36
-        run: |
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null
+        run: python3 scripts/setup_android_sdk.py
 
       - name: Download and verify private project
         id: prepare

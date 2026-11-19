@@ -4,6 +4,7 @@ on:
     paths:
       - 'scripts/mobile_build.py'
       - 'scripts/configure_mobile_signing.py'
+      - 'scripts/setup_android_sdk.py'
       - 'tests/test_mobile*.py'
       - '.github/workflows/test-builder.yml'
   pull_request:
@@ -22,3 +23,27 @@ jobs:
           distribution: temurin
           java-version: '17'
       - run: python3 -m unittest discover -s tests -p 'test_mobile*.py' -v
+  android-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify SDK setup on the actual GitHub Ubuntu image
+        run: python3 scripts/setup_android_sdk.py
+      - name: Verify paths exported for the following build steps
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, shutil
+          root = pathlib.Path(os.environ['ANDROID_HOME'])
+          assert str(root) == os.environ['ANDROID_SDK_ROOT']
+          assert shutil.which('sdkmanager')
+          assert (root / 'platforms/android-36/android.jar').is_file()
+          assert (root / 'build-tools/36.0.0/apksigner').is_file()
+          print('SDK command and package paths are ready for Gradle.')
+          PY
