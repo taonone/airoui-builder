@@ -1,5 +1,7 @@
 # Mobile Foundry v3 — 요청한 7개 개선과 운영 적용
 
+SDK 경로 오류 수정은 [PR #2](https://github.com/taonone/airoui-builder/pull/2)로 main에 반영했습니다. 기존 v3 사이트 사용자는 홈페이지 재배포 없이 Mobile Foundry에서 새 테스트 APK 빌드를 시작하면 됩니다. GitHub 실제 Ubuntu의 SDK 설치·경로 검사도 통과했습니다.
+
 ## 구현 내용
 
 | 요청 | 적용 내용 |
@@ -22,6 +24,8 @@ PWA 오프라인 기능 전체 완성, 외부 자산 자동 수집, Play Console
 
 - `.github/workflows/build-apk.yml`: 이 작업 폴더의 `builder-integration/build-apk.yml`과 같은 내용
 - `scripts/mobile_build.py`: 이 작업 폴더의 동일 파일
+- `scripts/configure_mobile_signing.py`: 공통/앱별 키 생성·보관·암호화 등록
+- `.github/workflows/check-signing.yml`: main의 공통 서명 설정 검증
 - `scripts/setup_android_sdk.py`: PATH와 무관하게 sdkmanager 위치를 찾고 SDK 36·Build Tools를 설치·검증합니다.
 - `tests/test_mobile_build.py`: 빌더 보안 회귀 테스트
 
@@ -41,41 +45,43 @@ PWA 오프라인 기능 전체 완성, 외부 자산 자동 수집, Play Console
 
 전용 빌드 Worker가 새 `sourceUrl` 필드를 모르는 경우에도 기존 `fileKey`에 서버가 생성한 만료 쿼리를 붙여 기존 URL 생성 방식으로 전달합니다. 전용 Worker는 쿼리를 제거하면 안 됩니다. 직접 GitHub dispatch 경로는 기존 GITHUB_BUILDER_REPO/GITHUB_PAT가 모두 설정되어 있을 때 사용하며, 암호화된 R2 원본은 R2 공개 주소가 아닌 airoui.com의 소스 전달 API로 내려받습니다.
 
-## 새 출시 키 만들기 — 기존 키가 없다고 답한 경우
+## 공통 출시 키 설정 — 한 번 등록하면 새 앱에 자동 사용
 
-현재 GitHub 저장소에는 R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT만 있는 것을 확인했습니다. **운영 키와 GitHub Secret을 이 작업에서 임의로 생성·등록하지는 않았습니다.** 아래 도구는 생성과 등록을 분리합니다.
-
-1. Mobile Foundry에 표시되는 **앱 ID**를 복사합니다. 예: `com.airoui.my_app`. 이미 설치한 앱이 있다면 그 앱의 실제 applicationId와 일치시켜야 합니다.
-2. 이 작업 폴더에서 아래 명령을 실행합니다. 예시 ID를 실제 값으로 바꿉니다.
+서명 설정이 없어서 AAB가 실패하는 경우, 이 작업 폴더의 **공통서명키설정.cmd**를 더블클릭하면 됩니다. 앱 ID 입력이나 비밀번호·Base64 복사는 필요하지 않습니다. 같은 기능의 명령은 다음과 같습니다.
 
 ```powershell
-python scripts/configure_mobile_signing.py --profile com.airoui.my_app --create
+python scripts/configure_mobile_signing.py --common --setup
 ```
 
-JDK 17 keytool로 새 RSA 3072비트 업로드 키와 무작위 비밀번호를 생성합니다. 보관 위치는 프로젝트 밖의 다음 개인 폴더입니다.
+도구는 기존 공통 키가 있으면 재사용하고, 처음일 때만 새 키를 만듭니다. 암호화 등록에 필요한 PyNaCl은 프로젝트 밖 전용 Python 환경에 자동 준비합니다. GitHub에 인증된 git 자격 증명과 JDK keytool이 필요합니다.
+
+등록하는 GitHub Actions Secret은 **AIROUI_COMMON_SIGNING_PROFILE** 한 개입니다. 개인 키 보관 위치는 다음과 같습니다.
 
 ```text
-%USERPROFILE%\.codex\secrets\airoui-android\com.airoui.my_app\
+%USERPROFILE%\.codex\secrets\airoui-android\_common\
   upload.jks
   signing.secrets.json
   signing.public.json
+  signing.registration.json
 ```
 
-Windows에서는 현재 사용자와 SYSTEM만 접근하도록 폴더 ACL을 설정합니다. 화면에는 보관 경로·공개 인증서 SHA-256만 표시하며 비밀번호와 키 본문은 출력하지 않습니다. 기존 키를 덮어쓰지 않습니다. **개인 폴더 전체를 안전한 별도 저장소에 백업한 뒤 다음 단계로 진행합니다.** 채팅·Git 저장소·공개 R2에 올리지 마세요.
+보관 폴더 전체를 안전한 별도 저장소에 백업하세요. 키·비밀번호는 출력하거나 명령줄 인수에 넣지 않습니다. 초기 키 생성 중단에 대비해 보호된 복구 기록을 먼저 쓰며, 키 생성·등록이 끝나면 임시 기록을 정리합니다. 기존 키나 다른 GitHub Secret을 덮어쓰지 않습니다. 같은 컴퓨터에서 다시 실행하면 등록 기록과 키가 일치하는지 확인하고 기존 키를 유지합니다.
 
-3. GitHub에 인증된 git 자격 증명이 있는 환경에서 다음 명령으로 암호화 등록합니다. PyNaCl은 GitHub의 공개키 암호화에 사용합니다.
+빌더는 다음 순서로 **프로필 전체**를 선택합니다. 서로 다른 프로필의 키와 비밀번호를 섞지 않습니다.
 
-```powershell
-python -m pip install PyNaCl
-python scripts/configure_mobile_signing.py --profile com.airoui.my_app --register --repo taonone/airoui-builder
-```
+1. 해당 앱의 AIROUI_SIGNING_PROFILES 항목
+2. AIROUI_COMMON_SIGNING_PROFILE 공통 키
+3. 기존 AIROUI_KEYSTORE_BASE64 / AIROUI_KEYSTORE_PASSWORD / AIROUI_KEY_ALIAS / AIROUI_KEY_PASSWORD 설정
 
-생성한 앱별 프로필을 **AIROUI_SIGNING_PROFILES**라는 GitHub Actions Secret으로 등록합니다. 토큰·비밀번호·Base64 키를 명령줄 인수에 넣지 않습니다. Secret이 이미 있으면 덮어쓰기를 거부합니다. 여러 앱 프로필은 기존 비공개 프로필 맵을 보존해 검토한 뒤 합쳐야 합니다.
+따라서 앱별 키가 없는 새 앱은 추가 설정 없이 공통 키를 사용합니다. 기존 앱의 개별 키는 우선 적용합니다. 서버에 저장된 인증서와 공통 키가 다르면 빌드를 중단하며 기존 앱의 키를 임의로 바꾸지 않습니다. 처음 검증된 출시 결과의 인증서는 기존처럼 DB에 고정합니다.
 
-4. 생성 도구가 출력한 공개 인증서 SHA-256을 Foundry의 인증서 입력에 넣으면 첫 출시부터 기대 지문을 확인할 수 있습니다. 입력하지 않아도 첫 검증된 출시 결과의 지문을 DB에 고정합니다.
-5. AAB 빌드 후 Google Play Console에 AAB를 업로드하고 Play App Signing을 설정합니다. AAB는 스마트폰에 직접 설치하는 파일이 아닙니다. 테스트하려면 출시 APK 또는 Play 내부 테스트 트랙을 사용합니다.
+설정 후 사이트에서 **Google Play 출시 AAB**를 선택하고 새 빌드를 시작하세요. 원본이 정리된 이전 Actions 실행의 재실행은 사용하지 않습니다. 별도의 홈페이지/Worker 재배포는 필요하지 않습니다. AAB는 휴대폰에 직접 설치하는 파일이 아니라 Google Play Console에 제출하는 파일입니다.
 
-처음 APK를 만들던 기존 workflow는 assembleDebug를 실행했습니다. 그 디버그 서명과 새 출시 키는 다를 수 있습니다. **기존 테스트 앱에 새 출시 APK를 덮어 설치할 수 없으면 먼저 앱 데이터를 내보내거나 백업해야 합니다.** 이 도구가 기존 앱을 삭제하거나 데이터를 지우지는 않습니다. Google Play의 업로드 키와 실제 배포 앱 서명키도 구분해 보관해야 합니다.
+GitHub Actions의 **Verify common release signing** workflow는 공통 Secret의 실제 키·비밀번호·별칭·인증서를 확인합니다. main에서만 실행하며 개인 키나 비밀번호를 로그에 표시하지 않습니다. 키 파일은 검사 후 삭제합니다.
+
+Google Play에서는 업로드 키와 실제 앱 배포 서명키를 구분합니다. Play App Signing이 관리하는 앱별 배포 키는 별개입니다. 테스트 APK의 디버그 서명은 출시 키와 다를 수 있으므로 출시 APK 전환 전에 기존 앱 데이터를 백업하세요.
+
+기존 앱별 설정이 필요한 경우에는 `--profile 앱ID --create` 및 `--profile 앱ID --register` 기능도 유지합니다. 기존 프로필 맵을 무조건 덮어쓰지는 않습니다.
 
 ## 소스 보관과 원본 기능 관련 설정
 

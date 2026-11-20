@@ -218,17 +218,44 @@ def certificate_fingerprint(output):
 
 
 def signing_values(config):
-    profiles = json.loads(os.environ.get("AIROUI_SIGNING_PROFILES") or "{}")
-    profile = profiles.get(config["signingProfile"], {})
-    values = {
-        "keystoreBase64": profile.get("keystoreBase64") or os.environ.get("AIROUI_KEYSTORE_BASE64"),
-        "storePassword": profile.get("storePassword") or os.environ.get("AIROUI_KEYSTORE_PASSWORD"),
-        "keyAlias": profile.get("keyAlias") or os.environ.get("AIROUI_KEY_ALIAS"),
-        "keyPassword": profile.get("keyPassword") or os.environ.get("AIROUI_KEY_PASSWORD"),
-    }
+    try:
+        profiles = json.loads(os.environ.get("AIROUI_SIGNING_PROFILES") or "{}")
+    except (ValueError, TypeError):
+        raise BuildError("App signing profiles Secret is not valid JSON") from None
+    if not isinstance(profiles, dict):
+        raise BuildError("App signing profiles Secret must be a JSON object")
+    if config["signingProfile"] in profiles:
+        profile = profiles[config["signingProfile"]]
+    elif os.environ.get("AIROUI_COMMON_SIGNING_PROFILE"):
+        try:
+            profile = json.loads(os.environ["AIROUI_COMMON_SIGNING_PROFILE"])
+        except (ValueError, TypeError):
+            raise BuildError("Common release signing Secret is not valid JSON") from None
+    else:
+        profile = {
+            "keystoreBase64": os.environ.get("AIROUI_KEYSTORE_BASE64"),
+            "storePassword": os.environ.get("AIROUI_KEYSTORE_PASSWORD"),
+            "keyAlias": os.environ.get("AIROUI_KEY_ALIAS"),
+            "keyPassword": os.environ.get("AIROUI_KEY_PASSWORD"),
+        }
+    if not isinstance(profile, dict):
+        raise BuildError("Selected signing profile must be a JSON object")
+    # Select an entire profile. Never combine passwords/keys from different profiles.
+    values = {name: profile.get(name) for name in ["keystoreBase64", "storePassword", "keyAlias", "keyPassword"]}
     if not all(isinstance(value, str) and value for value in values.values()):
         raise BuildError("Release signing secrets are not configured for this app")
+    expected = str(config.get("expectedCertificateSha256") or "").lower().replace(":", "")
+    declared = str(profile.get("certificateSha256") or "").lower().replace(":", "")
+    if expected and declared and expected != declared:
+        raise BuildError("Signing certificate differs from the installed app")
     return values
+
+
+def mask_signing_values(values):
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        for name in ["keystoreBase64", "storePassword", "keyPassword"]:
+            value = values[name].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print("::add-mask::" + value, flush=True)
 
 
 def build_project(root: Path, output: Path, expected=None):
@@ -239,6 +266,7 @@ def build_project(root: Path, output: Path, expected=None):
     with tempfile.TemporaryDirectory(prefix="airoui-signing-") as private:
         if config["mode"] != "apk":
             values = signing_values(config)
+            mask_signing_values(values)
             keyfile = Path(private) / "upload.jks"
             keyfile.write_bytes(base64.b64decode(values["keystoreBase64"], validate=True))
             keyfile.chmod(0o600)

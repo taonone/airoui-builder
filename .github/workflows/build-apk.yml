@@ -48,6 +48,7 @@ jobs:
         id: build
         env:
           AIROUI_SIGNING_PROFILES: ${{ secrets.AIROUI_SIGNING_PROFILES }}
+          AIROUI_COMMON_SIGNING_PROFILE: ${{ secrets.AIROUI_COMMON_SIGNING_PROFILE }}
           AIROUI_KEYSTORE_BASE64: ${{ secrets.AIROUI_KEYSTORE_BASE64 }}
           AIROUI_KEYSTORE_PASSWORD: ${{ secrets.AIROUI_KEYSTORE_PASSWORD }}
           AIROUI_KEY_ALIAS: ${{ secrets.AIROUI_KEY_ALIAS }}
