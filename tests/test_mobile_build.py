@@ -1,4 +1,5 @@
 import importlib.util
+import contextlib
 import io
 import json
 import os
@@ -57,6 +58,41 @@ class MobileBuildTests(unittest.TestCase):
         profile = {"keystoreBase64": "test-only", "storePassword": "test-only", "keyAlias": "test-only", "keyPassword": "test-only"}
         with patch.dict(os.environ, {"AIROUI_SIGNING_PROFILES": json.dumps({"com.airoui.app": profile})}, clear=True):
             self.assertEqual(builder.signing_values({"signingProfile": "com.airoui.app"}), profile)
+
+    def test_common_profile_is_shared_but_individual_profiles_take_priority(self):
+        common = {"keystoreBase64": "shared-key", "storePassword": "shared-password", "keyAlias": "shared-alias", "keyPassword": "shared-password"}
+        individual = {"keystoreBase64": "individual-key", "storePassword": "individual-password", "keyAlias": "individual-alias", "keyPassword": "individual-password"}
+        with patch.dict(os.environ, {"AIROUI_COMMON_SIGNING_PROFILE": json.dumps(common), "AIROUI_SIGNING_PROFILES": json.dumps({"com.airoui.existing": individual})}, clear=True):
+            for name in ["com.airoui.fan", "com.airoui.fridge"]:
+                self.assertEqual(builder.signing_values({"signingProfile": name}), common)
+            self.assertEqual(builder.signing_values({"signingProfile": "com.airoui.existing"}), individual)
+
+    def test_partial_individual_key_is_not_mixed_with_common_and_certificate_pin_is_preserved(self):
+        common = {"keystoreBase64": "shared-key", "storePassword": "shared-password", "keyAlias": "shared-alias", "keyPassword": "shared-password", "certificateSha256": "a" * 64}
+        env = {"AIROUI_COMMON_SIGNING_PROFILE": json.dumps(common), "AIROUI_SIGNING_PROFILES": json.dumps({"com.airoui.existing": {"keyAlias": "partial"}})}
+        with patch.dict(os.environ, env, clear=True):
+            with self.assertRaisesRegex(builder.BuildError, "Release signing secrets"):
+                builder.signing_values({"signingProfile": "com.airoui.existing"})
+            with self.assertRaisesRegex(builder.BuildError, "differs from the installed app"):
+                builder.signing_values({"signingProfile": "com.airoui.new", "expectedCertificateSha256": "b" * 64})
+
+    def test_malformed_secret_has_a_controlled_error_and_common_does_not_enter_gradle_env(self):
+        with patch.dict(os.environ, {"AIROUI_COMMON_SIGNING_PROFILE": "private-value-not-json"}, clear=True):
+            with self.assertRaises(builder.BuildError) as result:
+                builder.signing_values({"signingProfile": "com.airoui.new"})
+            self.assertNotIn("private-value-not-json", str(result.exception))
+            self.assertNotIn("AIROUI_COMMON_SIGNING_PROFILE", builder.clean_build_env())
+
+    def test_structured_secret_values_are_masked_before_github_build_logs(self):
+        values = {"keystoreBase64": "fixture-key", "storePassword": "fixture%password\n", "keyPassword": "fixture-password"}
+        output = io.StringIO()
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}, clear=True), contextlib.redirect_stdout(output):
+            builder.mask_signing_values(values)
+        self.assertIn("::add-mask::fixture%25password%0A", output.getvalue())
+        output = io.StringIO()
+        with patch.dict(os.environ, {}, clear=True), contextlib.redirect_stdout(output):
+            builder.mask_signing_values(values)
+        self.assertEqual(output.getvalue(), "")
 
     def test_source_redirect_is_rejected_and_payload_is_not_shell_code(self):
         with self.assertRaises(builder.BuildError):

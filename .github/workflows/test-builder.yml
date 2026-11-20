@@ -7,6 +7,7 @@ on:
       - 'scripts/setup_android_sdk.py'
       - 'tests/test_mobile*.py'
       - '.github/workflows/test-builder.yml'
+      - '.github/workflows/check-signing.yml'
   pull_request:
 permissions:
   contents: read

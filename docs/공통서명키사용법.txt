@@ -1,0 +1,21 @@
+공통 서명키 사용법 핵심
+
+처음 설정: ‘공통서명키설정.cmd’를 더블클릭합니다.
+앱 ID나 비밀번호를 직접 입력할 필요가 없습니다.
+기존 키가 있으면 재사용하며 새 키로 덮어쓰지 않습니다.
+
+설정 후 할 일:
+1. airoui.com 새로고침 → 관리자 로그인 → Mobile Foundry
+2. ‘Google Play 출시 AAB’ 선택 → 새 빌드 시작
+3. 완료된 .aab 파일을 Google Play Console에 업로드
+
+다른 새 앱도 같은 공통 키를 자동 사용합니다.
+앱마다 키를 새로 만들거나 GitHub에 등록할 필요가 없습니다.
+개별 키가 있는 기존 앱은 기존 설정을 우선 사용합니다.
+
+아래 개인 보관 폴더 전체를 안전한 별도 저장소에 백업하세요.
+%USERPROFILE%\.codex\secrets\airoui-android\_common
+
+GitHub에는 AIROUI_COMMON_SIGNING_PROFILE이라는 Secret 한 개로 암호화 등록됩니다.
+키·비밀번호를 채팅이나 GitHub 코드에 올리지 마세요.
+AAB는 휴대폰에 직접 설치하는 파일이 아닙니다.
