@@ -28,13 +28,15 @@ WRAPPER_HASHES = {
     "gradle/wrapper/gradle-wrapper.jar": "81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f",
 }
 GRADLE_SHA256 = "20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78"
+MAX_SOURCE_ZIP_BYTES = 256 * 1024 * 1024
+MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024
 TEMPLATE_HASHES = {'settings.gradle': '5f4189a9dbcbe1e96460676d1819cd0383070700666b467c97323e71a3c7c28d', 'build.gradle': '96a33edb21d173da2c36f5312f50cdfb9f71d9f5078c081c81f2d029547f6cb9', 'gradle.properties': 'e6b436ff6a08da8b8c05e0e2fc1a7f40f41701bb506cd80fc2ddfd7b6e3b3b2b', 'app/build.gradle': '71c3d9c8038a29b8518bc1332cc12aec2912fed19ad753cd0017d2236d117e3b', 'MainActivity.java': '7c45af454a734cbd60fb1749a6f6244de581dc0ad36337e76c71dfbfdceaf2b0'}
 SECRET_RULES = [
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
     re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b"),
     re.compile(r"\bsk-(?:proj-|ant-api\d+-)?[A-Za-z0-9_-]{24,}\b"),
     re.compile(r"\bAKIA[A-Z0-9]{16}\b"),
-    re.compile(r"(?:TURNSTILE_SECRET_KEY|AIROUI_JWT_SECRET|RESEND_API_KEY|GITHUB_PAT|client_secret)\s*[\"']?\s*[:=]\s*[\"'][^\"'\s]{16,}[\"']", re.I),
+    re.compile(r"(?:TURNSTILE_SECRET_KEY|AIROUI_JWT_SECRET|RESEND_API_KEY|GITHUB_PAT|client_secret)\s*[\"']?\s*[:=]\s*[\"'][^\"'\s]{16,}", re.I),
 ]
 
 
@@ -74,6 +76,33 @@ def download_bytes(url, maximum):
     return content
 
 
+def download_archive(url, destination, maximum=MAX_SOURCE_ZIP_BYTES):
+    """Stream the private ZIP to disk; never retain a large archive in RAM."""
+    request = urllib.request.Request(url, headers={"User-Agent": "Airoui-Foundry-v4"})
+    digest = hashlib.sha256()
+    count = 0
+    try:
+        with urllib.request.build_opener(NoRedirect).open(request, timeout=120) as response, destination.open("wb") as output:
+            declared = response.headers.get("Content-Length")
+            if declared and (not declared.isdigit() or int(declared) > maximum):
+                raise BuildError("Source download exceeds 256 MiB limit")
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                count += len(chunk)
+                if count > maximum:
+                    raise BuildError("Source download exceeds 256 MiB limit")
+                digest.update(chunk)
+                output.write(chunk)
+            if declared and count != int(declared):
+                raise BuildError("Source download was truncated")
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+    return digest.hexdigest()
+
+
 def extract_source(archive: Path, destination: Path):
     destination.mkdir(parents=True, exist_ok=True)
     total = 0
@@ -91,8 +120,8 @@ def extract_source(archive: Path, destination: Path):
                 raise BuildError("Unsafe or duplicate ZIP entry")
             seen.add(name)
             total += item.file_size
-            if total > 100 * 1024 * 1024:
-                raise BuildError("Extracted source exceeds 100MB")
+            if total > MAX_EXTRACTED_BYTES:
+                raise BuildError("Extracted source exceeds 1 GiB")
             target = destination.joinpath(*path.parts)
             if item.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
@@ -113,10 +142,14 @@ def scan_secrets(root: Path):
         if path.suffix.lower() in {".jks", ".keystore", ".p12", ".pfx", ".pem", ".key"} or path.name.startswith(".env"):
             raise BuildError("Private credential file in source archive")
         if path.suffix.lower() in {".html", ".js", ".json", ".txt", ".css"}:
-            text = path.read_text(encoding="utf-8", errors="replace")
-            if any(rule.search(text) for rule in SECRET_RULES):
-                # Values and excerpts never enter CI logs.
-                raise BuildError("Suspected private credential in source archive")
+            tail = ""
+            with path.open(encoding="utf-8", errors="replace") as source:
+                while chunk := source.read(65536):
+                    text = tail + chunk
+                    if any(rule.search(text) for rule in SECRET_RULES):
+                        # Values and excerpts never enter CI logs.
+                        raise BuildError("Suspected private credential in source archive")
+                    tail = text[-8192:]
 
 
 def verify_templates(root, config):
@@ -193,11 +226,10 @@ def prepare(work: Path):
     manifest = json.loads(download_bytes(manifest_url, 16384))
     if manifest.get("buildId") != payload["app_id"] or not re.fullmatch(r"[a-f0-9]{64}", manifest.get("sourceSha256", "")):
         raise BuildError("Invalid source manifest")
-    archive = download_bytes(payload["source_url"], 10 * 1024 * 1024)
-    if hashlib.sha256(archive).hexdigest() != manifest["sourceSha256"]:
-        raise BuildError("Source SHA-256 mismatch")
     archive_path = work / "source.zip"
-    archive_path.write_bytes(archive)
+    if download_archive(payload["source_url"], archive_path) != manifest["sourceSha256"]:
+        archive_path.unlink(missing_ok=True)
+        raise BuildError("Source SHA-256 mismatch")
     root = extract_source(archive_path, work / "project")
     verify_project(root, manifest)
     save_json(work / "reservation.json", manifest)
